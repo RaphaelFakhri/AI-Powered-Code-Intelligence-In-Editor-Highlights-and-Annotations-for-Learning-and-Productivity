@@ -2,6 +2,7 @@ import {
   AtSymbolIcon,
   LightBulbIcon as LightBulbIconOutline,
   PhotoIcon,
+  ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { LightBulbIcon as LightBulbIconSolid } from "@heroicons/react/24/solid";
 import { InputModifiers } from "core";
@@ -246,6 +247,65 @@ function InputToolbar(props: InputToolbarProps) {
           </ToolTip>
         </div>
       </div>
+      {!isInEdit && !props.hidden && (
+        <div className="flex flex-row items-center gap-2 px-1 pb-1">
+          <span className="text-description text-xs">Quick Actions:</span>
+          <button
+            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-blue-500"
+            onClick={() => {
+              window.postMessage(
+                {
+                  messageType: "userInput",
+                  data: {
+                    input:
+                      "Give me an overview of this codebase - what are the most important folders and what do they do?",
+                  },
+                },
+                "*",
+              );
+            }}
+          >
+            <ClipboardDocumentIcon className="h-4 w-4" />
+            Overview
+          </button>
+          <button
+            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-purple-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-purple-500"
+            onClick={() => {
+              window.postMessage(
+                {
+                  messageType: "userInput",
+                  data: {
+                    input:
+                      "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
+                  },
+                },
+                "*",
+              );
+            }}
+          >
+            <ClipboardDocumentIcon className="h-4 w-4" />
+            API
+          </button>
+          <button
+            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-green-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-green-500"
+            onClick={() => {
+              window.postMessage(
+                {
+                  messageType: "userInput",
+                  data: {
+                    input:
+                      "Explain the key concepts and architecture patterns used in this codebase.",
+                  },
+                },
+                "*",
+              );
+            }}
+          >
+            <ClipboardDocumentIcon className="h-4 w-4" />
+            Concept
+          </button>
+        </div>
+      )}
     </>
   );
 }

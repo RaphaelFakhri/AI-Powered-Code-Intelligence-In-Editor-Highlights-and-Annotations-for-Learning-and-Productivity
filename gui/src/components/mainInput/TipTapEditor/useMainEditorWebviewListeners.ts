@@ -50,9 +50,8 @@ export function useMainEditorWebviewListeners({
     async (data) => {
       if (!editor) return;
       editor.commands.insertContent(data.input);
-      onEnterRef.current({ useCodebase: false, noContext: true });
     },
-    [editor, onEnterRef.current],
+    [editor],
   );
 
   useWebviewListener("jetbrains/editorInsetRefresh", async () => {
