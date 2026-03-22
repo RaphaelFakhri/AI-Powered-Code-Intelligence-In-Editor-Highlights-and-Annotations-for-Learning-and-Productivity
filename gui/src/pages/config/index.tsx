@@ -8,7 +8,6 @@ import { TabGroup } from "../../components/ui/TabGroup";
 import { useAuth } from "../../context/Auth";
 import { useNavigationListener } from "../../hooks/useNavigationListener";
 import { bottomTabSections, getAllTabs, topTabSections } from "./configTabs";
-import { CliInstallBanner } from "../../components/CliInstallBanner";
 import { AccountDropdown } from "./features/account/AccountDropdown";
 
 function ConfigPage() {
@@ -94,7 +93,6 @@ function ConfigPage() {
           <div className="space-y-6 px-4 py-4">
             {allTabs.find((tab) => tab.id === activeTab)?.component}
           </div>
-          <CliInstallBanner permanentDismissal={true} />
         </div>
       </div>
     </div>
