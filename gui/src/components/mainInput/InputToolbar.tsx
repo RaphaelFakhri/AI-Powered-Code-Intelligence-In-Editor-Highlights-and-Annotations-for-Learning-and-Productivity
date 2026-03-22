@@ -251,7 +251,8 @@ function InputToolbar(props: InputToolbarProps) {
         <div className="flex flex-row items-center gap-2 px-1 pb-1">
           <span className="text-description text-xs">Quick Actions:</span>
           <button
-            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-blue-500"
+            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isEnterDisabled}
             onClick={() => {
               window.postMessage(
                 {
@@ -269,7 +270,8 @@ function InputToolbar(props: InputToolbarProps) {
             Overview
           </button>
           <button
-            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-purple-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-purple-500"
+            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-purple-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isEnterDisabled}
             onClick={() => {
               window.postMessage(
                 {
@@ -287,7 +289,8 @@ function InputToolbar(props: InputToolbarProps) {
             API
           </button>
           <button
-            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-green-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-green-500"
+            className="flex cursor-pointer items-center gap-1.5 rounded border-none bg-green-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isEnterDisabled}
             onClick={() => {
               window.postMessage(
                 {
