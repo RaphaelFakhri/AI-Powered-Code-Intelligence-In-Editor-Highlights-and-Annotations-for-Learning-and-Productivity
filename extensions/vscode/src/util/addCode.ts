@@ -7,11 +7,35 @@ import { VsCodeIdeUtils } from "./ideUtils";
 
 import type { VsCodeWebviewProtocol } from "../webviewProtocol";
 
+import { debugLog } from "./debug";
+
+function getEditorForContext(
+  allowEmpty?: boolean,
+): vscode.TextEditor | undefined {
+  const activeEditor = vscode.window.activeTextEditor;
+  if (activeEditor && (!activeEditor.selection.isEmpty || allowEmpty)) {
+    return activeEditor;
+  }
+
+  const editorWithSelection = vscode.window.visibleTextEditors.find(
+    (editor) => !editor.selection.isEmpty,
+  );
+  if (editorWithSelection) {
+    return editorWithSelection;
+  }
+
+  if (allowEmpty) {
+    return vscode.window.visibleTextEditors[0] ?? activeEditor;
+  }
+
+  return undefined;
+}
+
 export function getRangeInFileWithContents(
   allowEmpty?: boolean,
   range?: vscode.Range,
 ): RangeInFileWithContents | null {
-  const editor = vscode.window.activeTextEditor;
+  const editor = getEditorForContext(allowEmpty);
 
   if (editor) {
     const selection = editor.selection;
@@ -93,16 +117,22 @@ export function getRangeInFileWithContents(
 
 export async function addHighlightedCodeToContext(
   webviewProtocol: VsCodeWebviewProtocol | undefined,
-) {
-  // the passed argument below was set to true in https://github.com/continuedev/continue/pull/6711
-  // which would add the entire file contents when selection is empty
-  // some of this behaviour is reverted and needs further investigation
-  const rangeInFileWithContents = getRangeInFileWithContents(false);
-  if (rangeInFileWithContents) {
-    webviewProtocol?.request("highlightedCode", {
-      rangeInFileWithContents,
-    });
+  options?: { prompt?: string; shouldRun?: boolean },
+): Promise<boolean> {
+  if (!webviewProtocol) {
+    return false;
   }
+
+  const rangeInFileWithContents = getRangeInFileWithContents(false);
+  if (!rangeInFileWithContents) {
+    return false;
+  }
+
+  await webviewProtocol.request("highlightedCode", {
+    rangeInFileWithContents,
+    ...options,
+  });
+  return true;
 }
 
 export async function addEntireFileToContext(

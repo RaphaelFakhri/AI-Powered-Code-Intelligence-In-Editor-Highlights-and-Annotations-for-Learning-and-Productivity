@@ -84,6 +84,7 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
     },
     void,
   ];
+  quickAction: [{ codebasePrompt: string; selectedCodePrompt: string }, void];
 };
 
 export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
