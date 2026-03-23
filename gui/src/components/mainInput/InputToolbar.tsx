@@ -49,14 +49,6 @@ interface InputToolbarProps {
 
 const quickActions = [
   {
-    label: "Overview",
-    codebasePrompt:
-      "Give me an overview of this codebase - what are the most important folders and what do they do?",
-    selectedCodePrompt:
-      "Give me an overview of this selected code - explain what it does and how it works.",
-    colorClass: "bg-blue-600 hover:bg-blue-500",
-  },
-  {
     label: "API",
     codebasePrompt:
       "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
@@ -71,6 +63,14 @@ const quickActions = [
     selectedCodePrompt:
       "Explain the key concepts and patterns demonstrated in this selected code.",
     colorClass: "bg-green-600 hover:bg-green-500",
+  },
+  {
+    label: "Usage",
+    codebasePrompt:
+      "Find and explain how this codebase is typically used - show example usage patterns and common workflows.",
+    selectedCodePrompt:
+      "Find and explain how this selected code is typically used - show example usage patterns.",
+    colorClass: "bg-orange-600 hover:bg-orange-500",
   },
 ];
 

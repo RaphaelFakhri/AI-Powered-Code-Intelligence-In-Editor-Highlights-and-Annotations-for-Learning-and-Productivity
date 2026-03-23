@@ -218,7 +218,14 @@ export class VsCodeMessenger {
     this.onWebview("quickAction", async (msg) => {
       const { codebasePrompt, selectedCodePrompt } = msg.data;
 
-      const rangeInFile = getRangeInFileWithContents(false);
+      // Try with current selection first
+      let rangeInFile = getRangeInFileWithContents(false);
+
+      // If no selection, use entire file contents
+      if (!rangeInFile) {
+        rangeInFile = getRangeInFileWithContents(true);
+      }
+
       const hasSelection = !!rangeInFile;
       const promptToUse = hasSelection ? selectedCodePrompt : codebasePrompt;
 
@@ -228,6 +235,7 @@ export class VsCodeMessenger {
           shouldRun: true,
         });
       } else {
+        // Fallback: no file open - send as plain text (user must submit)
         this.webviewProtocol?.request("userInput", { input: promptToUse });
       }
     });

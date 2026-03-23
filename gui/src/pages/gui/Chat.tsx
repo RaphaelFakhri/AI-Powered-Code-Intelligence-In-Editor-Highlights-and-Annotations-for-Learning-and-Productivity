@@ -89,9 +89,9 @@ const quickActions = [
   {
     label: "Overview",
     codebasePrompt:
-      "Give me an overview of this codebase - what are the most important folders and what do they do?",
+      "In 4 concise bullets, summarize this codebase: purpose, key folders, main execution flow, and where to start. Keep it under 90 words.",
     selectedCodePrompt:
-      "Give me an overview of this selected code - explain what it does and how it works.",
+      "In 4 concise bullets, summarize this selected code: purpose, inputs/outputs, core logic, and important dependencies. Keep it under 70 words.",
     colorClass: "bg-blue-600 hover:bg-blue-500",
   },
   {
@@ -109,6 +109,14 @@ const quickActions = [
     selectedCodePrompt:
       "Explain the key concepts and patterns demonstrated in this selected code.",
     colorClass: "bg-green-600 hover:bg-green-500",
+  },
+  {
+    label: "Usage",
+    codebasePrompt:
+      "Find and explain how this codebase is typically used - show example usage patterns and common workflows.",
+    selectedCodePrompt:
+      "Find and explain how this selected code is typically used - show example usage patterns.",
+    colorClass: "bg-orange-600 hover:bg-orange-500",
   },
 ];
 
@@ -143,6 +151,14 @@ export function Chat() {
   const isStreaming = useAppSelector((state) => state.session.isStreaming);
   const [stepsOpen] = useState<(boolean | undefined)[]>([]);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [overviewText, setOverviewText] = useState("");
+  const [overviewRequestStart, setOverviewRequestStart] = useState<
+    number | null
+  >(null);
+  const [hiddenOverviewMessageIds, setHiddenOverviewMessageIds] = useState<
+    Set<string>
+  >(new Set());
+  const hasAutoTriggeredOverview = useRef(false);
   const mainTextInputRef = useRef<HTMLInputElement>(null);
   const stepsDivRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -459,20 +475,141 @@ export function Chat() {
   );
 
   const showScrollbar = showChatScrollbar ?? window.innerHeight > 5000;
+  const overviewAction = quickActions.find((a) => a.label === "Overview");
+  const detailQuickActions = quickActions.filter((a) => a.label !== "Overview");
+
+  const extractMessageText = useCallback((content: unknown): string => {
+    if (typeof content === "string") {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      return (content as { text?: string }[])
+        .map((part) => part.text ?? "")
+        .join("")
+        .trim();
+    }
+
+    return "";
+  }, []);
+
+  const requestOverview = useCallback(() => {
+    if (!overviewAction) {
+      return;
+    }
+
+    // Clear old hidden IDs so we only hide the latest overview pair
+    setHiddenOverviewMessageIds(new Set());
+    setOverviewRequestStart(history.length);
+    void ideMessenger.request(
+      "quickAction" as any,
+      {
+        codebasePrompt: overviewAction.codebasePrompt,
+        selectedCodePrompt: overviewAction.selectedCodePrompt,
+      } as any,
+    );
+  }, [history.length, ideMessenger, overviewAction]);
+
+  useEffect(() => {
+    if (hasAutoTriggeredOverview.current || isInEdit || !overviewAction) {
+      return;
+    }
+
+    hasAutoTriggeredOverview.current = true;
+    requestOverview();
+  }, [isInEdit, overviewAction, requestOverview]);
+
+  useEffect(() => {
+    if (overviewRequestStart === null) {
+      return;
+    }
+
+    // Only finalize overview when streaming has stopped
+    if (isStreaming) {
+      return;
+    }
+
+    for (let i = history.length - 1; i >= overviewRequestStart; i--) {
+      const item = history[i];
+      if (item.message.role !== "assistant") {
+        continue;
+      }
+
+      const nextOverviewText = extractMessageText(item.message.content);
+      if (nextOverviewText.length > 0) {
+        setOverviewText(nextOverviewText);
+      }
+
+      const hiddenIds = new Set<string>();
+      hiddenIds.add(item.message.id);
+      if (i > 0 && history[i - 1]?.message?.role === "user") {
+        hiddenIds.add(history[i - 1].message.id);
+      }
+      setHiddenOverviewMessageIds((prev) => {
+        const merged = new Set(prev);
+        hiddenIds.forEach((id) => merged.add(id));
+        return merged;
+      });
+
+      setOverviewRequestStart(null);
+      break;
+    }
+  }, [extractMessageText, history, overviewRequestStart, isStreaming]);
 
   return (
     <>
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
 
+      {!isInEdit && overviewAction && (
+        <div className="border-vsc-editorWidget-background bg-vsc-input-background sticky top-0 z-20 border-b px-3 py-2">
+          <div className="flex items-center justify-between pb-1">
+            <span className="text-vscForeground text-sm font-semibold">
+              Overview
+            </span>
+            <button
+              className={`flex cursor-pointer items-center gap-1.5 rounded-md border-none ${overviewAction.colorClass} px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all duration-200`}
+              onClick={requestOverview}
+            >
+              <ClipboardDocumentIcon className="h-4 w-4" />
+              Refresh Overview
+            </button>
+          </div>
+          <div className="text-vscForeground border-vsc-editorWidget-background bg-vsc-editor-background max-h-28 overflow-y-auto rounded-md border px-2 py-1.5 text-xs leading-5 opacity-90">
+            {overviewRequestStart !== null && (
+              <span className="opacity-60">Generating overview...</span>
+            )}
+            {overviewRequestStart === null && overviewText.length === 0 && (
+              <span className="opacity-60">
+                Overview appears here. Select code and refresh to update.
+              </span>
+            )}
+            {overviewRequestStart === null && overviewText.length > 0 && (
+              <span>{overviewText}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <StepsDiv
         ref={stepsDivRef}
         className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
       >
         {highlights}
-        {history
-          .filter((item) => item.message.role !== "system")
-          .map((item, index: number) => (
+        {history.map((item, index: number) => {
+          if (item.message.role === "system") {
+            return null;
+          }
+
+          if (hiddenOverviewMessageIds.has(item.message.id)) {
+            return null;
+          }
+
+          if (overviewRequestStart !== null && index >= overviewRequestStart) {
+            return null;
+          }
+
+          return (
             <div
               key={item.message.id}
               style={{
@@ -489,7 +626,8 @@ export function Chat() {
               </ErrorBoundary>
               {index === history.length - 1 && <InlineErrorMessage />}
             </div>
-          ))}
+          );
+        })}
       </StepsDiv>
       <div className={"relative"}>
         <ContinueInputBox
@@ -532,10 +670,10 @@ export function Chat() {
           )}
         </div>
 
-        {!isInEdit && (
+        {!isInEdit && detailQuickActions.length > 0 && (
           <div className="flex flex-row items-center justify-center gap-2 px-1 pb-1 pt-2">
             <span className="text-description text-xs">Quick Actions:</span>
-            {quickActions.map(
+            {detailQuickActions.map(
               ({ label, codebasePrompt, selectedCodePrompt, colorClass }) => (
                 <button
                   key={label}
