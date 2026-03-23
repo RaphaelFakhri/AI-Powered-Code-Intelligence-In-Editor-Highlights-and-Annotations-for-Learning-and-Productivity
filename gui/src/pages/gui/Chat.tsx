@@ -1,6 +1,10 @@
 import {
   ArrowLeftIcon,
   ChatBubbleOvalLeftIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ArrowPathIcon,
+  XMarkIcon,
   ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { Editor, JSONContent } from "@tiptap/react";
@@ -92,7 +96,8 @@ const quickActions = [
       "In 4 concise bullets, summarize this codebase: purpose, key folders, main execution flow, and where to start. Keep it under 90 words.",
     selectedCodePrompt:
       "In 4 concise bullets, summarize this selected code: purpose, inputs/outputs, core logic, and important dependencies. Keep it under 70 words.",
-    colorClass: "bg-blue-600 hover:bg-blue-500",
+    colorClass:
+      "text-vscForeground/70 border-blue-500/30 hover:border-blue-500/60 hover:text-blue-400",
   },
   {
     label: "API",
@@ -100,7 +105,8 @@ const quickActions = [
       "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
     selectedCodePrompt:
       "Find and explain the API endpoints in this selected code - what are they and how do they work?",
-    colorClass: "bg-purple-600 hover:bg-purple-500",
+    colorClass:
+      "text-vscForeground/70 border-purple-500/30 hover:border-purple-500/60 hover:text-purple-400",
   },
   {
     label: "Concept",
@@ -108,7 +114,8 @@ const quickActions = [
       "Explain the key concepts and architecture patterns used in this codebase.",
     selectedCodePrompt:
       "Explain the key concepts and patterns demonstrated in this selected code.",
-    colorClass: "bg-green-600 hover:bg-green-500",
+    colorClass:
+      "text-vscForeground/70 border-green-500/30 hover:border-green-500/60 hover:text-green-400",
   },
   {
     label: "Usage",
@@ -116,7 +123,8 @@ const quickActions = [
       "Find and explain how this codebase is typically used - show example usage patterns and common workflows.",
     selectedCodePrompt:
       "Find and explain how this selected code is typically used - show example usage patterns.",
-    colorClass: "bg-orange-600 hover:bg-orange-500",
+    colorClass:
+      "text-vscForeground/70 border-orange-500/30 hover:border-orange-500/60 hover:text-orange-400",
   },
 ];
 
@@ -158,6 +166,8 @@ export function Chat() {
   const [hiddenOverviewMessageIds, setHiddenOverviewMessageIds] = useState<
     Set<string>
   >(new Set());
+  const [overviewExpanded, setOverviewExpanded] = useState(false);
+  const [overviewDismissed, setOverviewDismissed] = useState(false);
   const hasAutoTriggeredOverview = useRef(false);
   const mainTextInputRef = useRef<HTMLInputElement>(null);
   const stepsDivRef = useRef<HTMLDivElement>(null);
@@ -561,33 +571,75 @@ export function Chat() {
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
 
-      {!isInEdit && overviewAction && (
-        <div className="border-vsc-editorWidget-background bg-vsc-input-background sticky top-0 z-20 border-b px-3 py-2">
-          <div className="flex items-center justify-between pb-1">
-            <span className="text-vscForeground text-sm font-semibold">
-              Overview
-            </span>
+      {!isInEdit && overviewAction && !overviewDismissed && (
+        <div className="border-vsc-editorWidget-background bg-vsc-input-background/60 sticky top-0 z-20 border-b">
+          {/* Compact header bar */}
+          <div className="flex items-center gap-2 px-3 py-1.5">
             <button
-              className={`flex cursor-pointer items-center gap-1.5 rounded-md border-none ${overviewAction.colorClass} px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all duration-200`}
-              onClick={requestOverview}
+              onClick={() => setOverviewExpanded(!overviewExpanded)}
+              className="text-vscForeground/80 hover:text-vscForeground flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 transition-colors duration-150"
             >
-              <ClipboardDocumentIcon className="h-4 w-4" />
-              Refresh Overview
+              {overviewExpanded ? (
+                <ChevronDownIcon className="h-3 w-3" />
+              ) : (
+                <ChevronRightIcon className="h-3 w-3" />
+              )}
+              <span className="text-xs font-medium">Overview</span>
             </button>
-          </div>
-          <div className="text-vscForeground border-vsc-editorWidget-background bg-vsc-editor-background max-h-28 overflow-y-auto rounded-md border px-2 py-1.5 text-xs leading-5 opacity-90">
-            {overviewRequestStart !== null && (
-              <span className="opacity-60">Generating overview...</span>
-            )}
-            {overviewRequestStart === null && overviewText.length === 0 && (
-              <span className="opacity-60">
-                Overview appears here. Select code and refresh to update.
+
+            {/* One-liner preview when collapsed */}
+            {!overviewExpanded && overviewText.length > 0 && (
+              <span className="text-vscForeground/50 truncate px-1 text-[11px] leading-5">
+                {overviewText.split("\n")[0]}
               </span>
             )}
-            {overviewRequestStart === null && overviewText.length > 0 && (
-              <span>{overviewText}</span>
+
+            {!overviewExpanded && overviewRequestStart !== null && (
+              <span className="text-vscForeground/40 animate-pulse px-1 text-[11px] leading-5">
+                Generating...
+              </span>
             )}
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={requestOverview}
+                title="Refresh Overview"
+                className="text-vscForeground/40 hover:text-vscForeground/70 flex cursor-pointer items-center rounded border-none bg-transparent p-1 transition-colors duration-150"
+              >
+                <ArrowPathIcon className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setOverviewDismissed(true)}
+                title="Dismiss"
+                className="text-vscForeground/40 hover:text-vscForeground/70 flex cursor-pointer items-center rounded border-none bg-transparent p-1 transition-colors duration-150"
+              >
+                <XMarkIcon className="h-3 w-3" />
+              </button>
+            </div>
           </div>
+
+          {/* Expanded full content */}
+          {overviewExpanded && (
+            <div className="text-vscForeground/85 bg-vsc-editor-background/40 border-vsc-editorWidget-background/50 max-h-40 overflow-y-auto border-t px-3 py-2 text-[11px] leading-[18px]">
+              {overviewRequestStart !== null && (
+                <span className="text-vscForeground/50 animate-pulse">
+                  Generating overview...
+                </span>
+              )}
+              {overviewRequestStart === null && overviewText.length === 0 && (
+                <span className="text-vscForeground/40">
+                  Overview appears here. Refresh to generate.
+                </span>
+              )}
+              {overviewRequestStart === null && overviewText.length > 0 && (
+                <span className="whitespace-pre-wrap">{overviewText}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -672,12 +724,12 @@ export function Chat() {
 
         {!isInEdit && detailQuickActions.length > 0 && (
           <div className="flex flex-row items-center justify-center gap-2 px-1 pb-1 pt-2">
-            <span className="text-description text-xs">Quick Actions:</span>
+            <span className="text-description text-[11px]">Quick Actions:</span>
             {detailQuickActions.map(
               ({ label, codebasePrompt, selectedCodePrompt, colorClass }) => (
                 <button
                   key={label}
-                  className={`flex cursor-pointer items-center gap-1.5 rounded border-none ${colorClass} px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200`}
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-md border bg-transparent px-2.5 py-1 text-[11px] font-medium transition-all duration-150 ${colorClass}`}
                   onClick={() => {
                     void ideMessenger.request(
                       "quickAction" as any,
@@ -688,7 +740,7 @@ export function Chat() {
                     );
                   }}
                 >
-                  <ClipboardDocumentIcon className="h-4 w-4" />
+                  <ClipboardDocumentIcon className="h-3 w-3" />
                   {label}
                 </button>
               ),
