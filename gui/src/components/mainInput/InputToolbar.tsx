@@ -283,12 +283,12 @@ function InputToolbar(props: InputToolbarProps) {
                 key={label}
                 className={`flex cursor-pointer items-center gap-1.5 rounded border-none ${colorClass} px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200`}
                 onClick={() => {
-                  window.postMessage(
+                  void ideMessenger.request(
+                    "quickAction" as any,
                     {
-                      messageType: "quickAction",
-                      data: { codebasePrompt, selectedCodePrompt },
-                    },
-                    "*",
+                      codebasePrompt,
+                      selectedCodePrompt,
+                    } as any,
                   );
                 }}
               >

@@ -9,11 +9,33 @@ import type { VsCodeWebviewProtocol } from "../webviewProtocol";
 
 import { debugLog } from "./debug";
 
+function getEditorForContext(
+  allowEmpty?: boolean,
+): vscode.TextEditor | undefined {
+  const activeEditor = vscode.window.activeTextEditor;
+  if (activeEditor && (!activeEditor.selection.isEmpty || allowEmpty)) {
+    return activeEditor;
+  }
+
+  const editorWithSelection = vscode.window.visibleTextEditors.find(
+    (editor) => !editor.selection.isEmpty,
+  );
+  if (editorWithSelection) {
+    return editorWithSelection;
+  }
+
+  if (allowEmpty) {
+    return vscode.window.visibleTextEditors[0] ?? activeEditor;
+  }
+
+  return undefined;
+}
+
 export function getRangeInFileWithContents(
   allowEmpty?: boolean,
   range?: vscode.Range,
 ): RangeInFileWithContents | null {
-  const editor = vscode.window.activeTextEditor;
+  const editor = getEditorForContext(allowEmpty);
 
   if (editor) {
     const selection = editor.selection;
@@ -100,8 +122,8 @@ export async function addHighlightedCodeToContext(
   debugLog(
     `addHighlightedCodeToContext called with options: ${JSON.stringify(options)}`,
   );
-  const editor = vscode.window.activeTextEditor;
-  debugLog(`activeTextEditor: ${editor ? "exists" : "null"}`);
+  const editor = getEditorForContext(false);
+  debugLog(`editorForContext: ${editor ? "exists" : "null"}`);
 
   if (editor) {
     debugLog(

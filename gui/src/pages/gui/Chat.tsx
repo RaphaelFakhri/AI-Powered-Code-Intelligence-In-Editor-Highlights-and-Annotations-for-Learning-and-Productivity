@@ -502,7 +502,38 @@ export function Chat() {
           inputId={MAIN_EDITOR_INPUT_ID}
         />
 
-        {history.length === 0 ? (
+        <div
+          style={{
+            pointerEvents: isStreaming ? "none" : "auto",
+          }}
+        >
+          <div className="flex flex-row items-center justify-between pb-1 pl-0.5 pr-2">
+            <div className="xs:inline hidden">
+              {history.length === 0 && lastSessionId && !isInEdit && (
+                <NewSessionButton
+                  onClick={async () => {
+                    await dispatch(loadLastSession());
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <ArrowLeftIcon className="h-3 w-3" />
+                  <span className="text-xs">Last Session</span>
+                </NewSessionButton>
+              )}
+            </div>
+          </div>
+          <FatalErrorIndicator />
+          {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
+          {mode === "background" ? (
+            <BackgroundModeView isCreatingAgent={isCreatingAgent} />
+          ) : (
+            history.length === 0 && (
+              <EmptyChatBody showOnboardingCard={onboardingCard.show} />
+            )
+          )}
+        </div>
+
+        {!isInEdit && (
           <div className="flex flex-row items-center justify-center gap-2 px-1 pb-1 pt-2">
             <span className="text-description text-xs">Quick Actions:</span>
             {quickActions.map(
@@ -511,12 +542,12 @@ export function Chat() {
                   key={label}
                   className={`flex cursor-pointer items-center gap-1.5 rounded border-none ${colorClass} px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200`}
                   onClick={() => {
-                    window.postMessage(
+                    void ideMessenger.request(
+                      "quickAction" as any,
                       {
-                        messageType: "quickAction",
-                        data: { codebasePrompt, selectedCodePrompt },
-                      },
-                      "*",
+                        codebasePrompt,
+                        selectedCodePrompt,
+                      } as any,
                     );
                   }}
                 >
@@ -526,35 +557,6 @@ export function Chat() {
               ),
             )}
           </div>
-        ) : (
-          <>
-            <div
-              style={{
-                pointerEvents: isStreaming ? "none" : "auto",
-              }}
-            >
-              <div className="flex flex-row items-center justify-between pb-1 pl-0.5 pr-2">
-                <div className="xs:inline hidden">
-                  {lastSessionId && !isInEdit && (
-                    <NewSessionButton
-                      onClick={async () => {
-                        await dispatch(loadLastSession());
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <ArrowLeftIcon className="h-3 w-3" />
-                      <span className="text-xs">Last Session</span>
-                    </NewSessionButton>
-                  )}
-                </div>
-              </div>
-              <FatalErrorIndicator />
-              {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
-              {mode === "background" && (
-                <BackgroundModeView isCreatingAgent={isCreatingAgent} />
-              )}
-            </div>
-          </>
         )}
       </div>
     </>
