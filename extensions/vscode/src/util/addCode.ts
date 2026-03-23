@@ -7,6 +7,8 @@ import { VsCodeIdeUtils } from "./ideUtils";
 
 import type { VsCodeWebviewProtocol } from "../webviewProtocol";
 
+import { debugLog } from "./debug";
+
 export function getRangeInFileWithContents(
   allowEmpty?: boolean,
   range?: vscode.Range,
@@ -93,16 +95,43 @@ export function getRangeInFileWithContents(
 
 export async function addHighlightedCodeToContext(
   webviewProtocol: VsCodeWebviewProtocol | undefined,
-) {
-  // the passed argument below was set to true in https://github.com/continuedev/continue/pull/6711
-  // which would add the entire file contents when selection is empty
-  // some of this behaviour is reverted and needs further investigation
+  options?: { prompt?: string; shouldRun?: boolean },
+): Promise<boolean> {
+  debugLog(
+    `addHighlightedCodeToContext called with options: ${JSON.stringify(options)}`,
+  );
+  const editor = vscode.window.activeTextEditor;
+  debugLog(`activeTextEditor: ${editor ? "exists" : "null"}`);
+
+  if (editor) {
+    debugLog(
+      `selection: ${editor.selection.isEmpty ? "empty" : "has selection"}`,
+    );
+    debugLog(`file: ${editor.document.uri.toString()}`);
+  }
+
   const rangeInFileWithContents = getRangeInFileWithContents(false);
+  debugLog(
+    `getRangeInFileWithContents result: ${rangeInFileWithContents ? "found" : "null"}`,
+  );
   if (rangeInFileWithContents) {
+    debugLog(
+      `rangeInFileWithContents found, sending highlightedCode with shouldRun: ${options?.shouldRun}`,
+    );
+    debugLog(
+      `range contents length: ${rangeInFileWithContents.contents.length}`,
+    );
+    debugLog(`range file: ${rangeInFileWithContents.filepath}`);
     webviewProtocol?.request("highlightedCode", {
       rangeInFileWithContents,
+      ...options,
     });
+    debugLog("request sent to webview");
+    return true;
   }
+
+  debugLog("NO rangeInFileWithContents found - no selection or not in editor");
+  return false;
 }
 
 export async function addEntireFileToContext(

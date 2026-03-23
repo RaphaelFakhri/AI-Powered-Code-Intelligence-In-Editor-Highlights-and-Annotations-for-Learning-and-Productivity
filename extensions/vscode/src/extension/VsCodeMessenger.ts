@@ -25,6 +25,8 @@ import * as vscode from "vscode";
 import { ApplyManager } from "../apply";
 import { VerticalDiffManager } from "../diff/vertical/manager";
 import { addCurrentSelectionToEdit } from "../quickEdit/AddCurrentSelection";
+import { addHighlightedCodeToContext } from "../util/addCode";
+import { debugLog, revealDebugLogs } from "../util/debug";
 import EditDecorationManager from "../quickEdit/EditDecorationManager";
 import {
   getControlPlaneSessionInfo,
@@ -210,6 +212,29 @@ export class VsCodeMessenger {
         webviewProtocol: this.webviewProtocol,
         verticalDiffManager,
       });
+    });
+    this.onWebview("quickAction", async (msg) => {
+      const { codebasePrompt, selectedCodePrompt } = msg.data;
+      revealDebugLogs();
+
+      const editor = vscode.window.activeTextEditor;
+      const hasSelection = editor && !editor.selection.isEmpty;
+      const promptToUse = hasSelection ? selectedCodePrompt : codebasePrompt;
+
+      debugLog(
+        `quickAction: hasSelection=${hasSelection}, prompt=${promptToUse}`,
+      );
+
+      const addedContext = await addHighlightedCodeToContext(
+        this.webviewProtocol,
+        {
+          prompt: promptToUse,
+          shouldRun: true,
+        },
+      );
+      debugLog(
+        `quickAction: addHighlightedCodeToContext returned ${addedContext}`,
+      );
     });
     this.onWebview("edit/sendPrompt", async (msg) => {
       const prompt = msg.data.prompt;

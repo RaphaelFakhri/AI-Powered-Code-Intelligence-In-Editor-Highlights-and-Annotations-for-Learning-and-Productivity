@@ -50,20 +50,26 @@ interface InputToolbarProps {
 const quickActions = [
   {
     label: "Overview",
-    prompt:
+    codebasePrompt:
       "Give me an overview of this codebase - what are the most important folders and what do they do?",
+    selectedCodePrompt:
+      "Give me an overview of this selected code - explain what it does and how it works.",
     colorClass: "bg-blue-600 hover:bg-blue-500",
   },
   {
     label: "API",
-    prompt:
+    codebasePrompt:
       "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
+    selectedCodePrompt:
+      "Find and explain the API endpoints in this selected code - what are they and how do they work?",
     colorClass: "bg-purple-600 hover:bg-purple-500",
   },
   {
     label: "Concept",
-    prompt:
+    codebasePrompt:
       "Explain the key concepts and architecture patterns used in this codebase.",
+    selectedCodePrompt:
+      "Explain the key concepts and patterns demonstrated in this selected code.",
     colorClass: "bg-green-600 hover:bg-green-500",
   },
 ];
@@ -95,13 +101,6 @@ function InputToolbar(props: InputToolbarProps) {
 
   const smallFont = useFontSize(-2);
   const tinyFont = useFontSize(-3);
-
-  function sendQuickAction(prompt: string) {
-    window.postMessage(
-      { messageType: "userInput", data: { input: prompt } },
-      "*",
-    );
-  }
 
   return (
     <>
@@ -275,19 +274,29 @@ function InputToolbar(props: InputToolbarProps) {
           </ToolTip>
         </div>
       </div>
-      {!isInEdit && !props.hidden && (
+      {!isInEdit && (
         <div className="flex flex-row items-center gap-2 px-1 pb-1">
           <span className="text-description text-xs">Quick Actions:</span>
-          {quickActions.map(({ label, prompt, colorClass }) => (
-            <button
-              key={label}
-              className={`flex cursor-pointer items-center gap-1.5 rounded border-none ${colorClass} px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200`}
-              onClick={() => sendQuickAction(prompt)}
-            >
-              <ClipboardDocumentIcon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
+          {quickActions.map(
+            ({ label, codebasePrompt, selectedCodePrompt, colorClass }) => (
+              <button
+                key={label}
+                className={`flex cursor-pointer items-center gap-1.5 rounded border-none ${colorClass} px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200`}
+                onClick={() => {
+                  window.postMessage(
+                    {
+                      messageType: "quickAction",
+                      data: { codebasePrompt, selectedCodePrompt },
+                    },
+                    "*",
+                  );
+                }}
+              >
+                <ClipboardDocumentIcon className="h-4 w-4" />
+                {label}
+              </button>
+            ),
+          )}
         </div>
       )}
     </>
