@@ -1,6 +1,8 @@
 import {
+  AtSymbolIcon,
   ChatBubbleLeftRightIcon,
-  LightBulbIcon,
+  LightBulbIcon as LightBulbIconOutline,
+  PhotoIcon,
 } from "@heroicons/react/24/outline";
 import { LightBulbIcon as LightBulbIconSolid } from "@heroicons/react/24/solid";
 import { InputModifiers } from "core";
