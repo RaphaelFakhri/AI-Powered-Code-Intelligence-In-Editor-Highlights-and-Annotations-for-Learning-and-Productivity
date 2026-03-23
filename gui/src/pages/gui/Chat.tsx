@@ -1,11 +1,10 @@
 import {
   ArrowLeftIcon,
+  ArrowPathIcon,
   ChatBubbleOvalLeftIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  ArrowPathIcon,
   XMarkIcon,
-  ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { Editor, JSONContent } from "@tiptap/react";
 import { ChatHistoryItem, InputModifiers } from "core";
@@ -53,6 +52,7 @@ import { useStore } from "react-redux";
 import { BackgroundModeView } from "../../components/BackgroundMode/BackgroundModeView";
 import FeedbackDialog from "../../components/dialogs/FeedbackDialog";
 
+import { selectSelectedChatModel } from "../../redux/slices/configSlice";
 import { FatalErrorIndicator } from "../../components/config/FatalErrorNotice";
 import InlineErrorMessage from "../../components/mainInput/InlineErrorMessage";
 import { resolveEditorContent } from "../../components/mainInput/TipTapEditor/utils/resolveEditorContent";
@@ -96,8 +96,6 @@ const quickActions = [
       "In 4 concise bullets, summarize this codebase: purpose, key folders, main execution flow, and where to start. Keep it under 90 words.",
     selectedCodePrompt:
       "In 4 concise bullets, summarize this selected code: purpose, inputs/outputs, core logic, and important dependencies. Keep it under 70 words.",
-    colorClass:
-      "text-vscForeground/70 border-blue-500/30 hover:border-blue-500/60 hover:text-blue-400",
   },
   {
     label: "API",
@@ -105,8 +103,6 @@ const quickActions = [
       "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
     selectedCodePrompt:
       "Find and explain the API endpoints in this selected code - what are they and how do they work?",
-    colorClass:
-      "text-vscForeground/70 border-purple-500/30 hover:border-purple-500/60 hover:text-purple-400",
   },
   {
     label: "Concept",
@@ -114,8 +110,6 @@ const quickActions = [
       "Explain the key concepts and architecture patterns used in this codebase.",
     selectedCodePrompt:
       "Explain the key concepts and patterns demonstrated in this selected code.",
-    colorClass:
-      "text-vscForeground/70 border-green-500/30 hover:border-green-500/60 hover:text-green-400",
   },
   {
     label: "Usage",
@@ -123,8 +117,6 @@ const quickActions = [
       "Find and explain how this codebase is typically used - show example usage patterns and common workflows.",
     selectedCodePrompt:
       "Find and explain how this selected code is typically used - show example usage patterns.",
-    colorClass:
-      "text-vscForeground/70 border-orange-500/30 hover:border-orange-500/60 hover:text-orange-400",
   },
 ];
 
@@ -160,12 +152,7 @@ export function Chat() {
   const [stepsOpen] = useState<(boolean | undefined)[]>([]);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [overviewText, setOverviewText] = useState("");
-  const [overviewRequestStart, setOverviewRequestStart] = useState<
-    number | null
-  >(null);
-  const [hiddenOverviewMessageIds, setHiddenOverviewMessageIds] = useState<
-    Set<string>
-  >(new Set());
+  const [isOverviewLoading, setIsOverviewLoading] = useState(false);
   const [overviewExpanded, setOverviewExpanded] = useState(false);
   const [overviewDismissed, setOverviewDismissed] = useState(false);
   const hasAutoTriggeredOverview = useRef(false);
@@ -488,37 +475,49 @@ export function Chat() {
   const overviewAction = quickActions.find((a) => a.label === "Overview");
   const detailQuickActions = quickActions.filter((a) => a.label !== "Overview");
 
-  const extractMessageText = useCallback((content: unknown): string => {
-    if (typeof content === "string") {
-      return content;
-    }
+  const selectedModel = useAppSelector(selectSelectedChatModel);
 
-    if (Array.isArray(content)) {
-      return (content as { text?: string }[])
-        .map((part) => part.text ?? "")
-        .join("")
-        .trim();
-    }
-
-    return "";
-  }, []);
-
-  const requestOverview = useCallback(() => {
-    if (!overviewAction) {
+  const requestOverview = useCallback(async () => {
+    if (!overviewAction || isOverviewLoading) {
       return;
     }
 
-    // Clear old hidden IDs so we only hide the latest overview pair
-    setHiddenOverviewMessageIds(new Set());
-    setOverviewRequestStart(history.length);
-    void ideMessenger.request(
-      "quickAction" as any,
-      {
+    setIsOverviewLoading(true);
+
+    try {
+      const contextResult = await ideMessenger.request("overview/query", {
         codebasePrompt: overviewAction.codebasePrompt,
         selectedCodePrompt: overviewAction.selectedCodePrompt,
-      } as any,
-    );
-  }, [history.length, ideMessenger, overviewAction]);
+      });
+
+      if (contextResult.status !== "success") {
+        setOverviewText("Failed to get context.");
+        return;
+      }
+
+      const { prompt, context } = contextResult.content;
+      let fullPrompt = prompt;
+      if (context) {
+        fullPrompt += `\n\nFile: ${context.filepath}\n\`\`\`\n${context.contents}\n\`\`\``;
+      }
+
+      const llmResult = await ideMessenger.request("llm/complete", {
+        prompt: fullPrompt,
+        completionOptions: { maxTokens: 500 },
+        title: selectedModel?.title ?? "",
+      });
+
+      if (llmResult.status === "success") {
+        setOverviewText(llmResult.content);
+      } else {
+        setOverviewText("Failed to generate overview.");
+      }
+    } catch {
+      setOverviewText("Failed to generate overview.");
+    } finally {
+      setIsOverviewLoading(false);
+    }
+  }, [overviewAction, isOverviewLoading, ideMessenger, selectedModel]);
 
   useEffect(() => {
     if (hasAutoTriggeredOverview.current || isInEdit || !overviewAction) {
@@ -526,45 +525,8 @@ export function Chat() {
     }
 
     hasAutoTriggeredOverview.current = true;
-    requestOverview();
+    void requestOverview();
   }, [isInEdit, overviewAction, requestOverview]);
-
-  useEffect(() => {
-    if (overviewRequestStart === null) {
-      return;
-    }
-
-    // Only finalize overview when streaming has stopped
-    if (isStreaming) {
-      return;
-    }
-
-    for (let i = history.length - 1; i >= overviewRequestStart; i--) {
-      const item = history[i];
-      if (item.message.role !== "assistant") {
-        continue;
-      }
-
-      const nextOverviewText = extractMessageText(item.message.content);
-      if (nextOverviewText.length > 0) {
-        setOverviewText(nextOverviewText);
-      }
-
-      const hiddenIds = new Set<string>();
-      hiddenIds.add(item.message.id);
-      if (i > 0 && history[i - 1]?.message?.role === "user") {
-        hiddenIds.add(history[i - 1].message.id);
-      }
-      setHiddenOverviewMessageIds((prev) => {
-        const merged = new Set(prev);
-        hiddenIds.forEach((id) => merged.add(id));
-        return merged;
-      });
-
-      setOverviewRequestStart(null);
-      break;
-    }
-  }, [extractMessageText, history, overviewRequestStart, isStreaming]);
 
   return (
     <>
@@ -572,12 +534,12 @@ export function Chat() {
       {widget}
 
       {!isInEdit && overviewAction && !overviewDismissed && (
-        <div className="border-vsc-editorWidget-background bg-vsc-input-background/60 sticky top-0 z-20 border-b">
+        <div className="sticky top-0 z-20 border-b border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editorWidget-background)]">
           {/* Compact header bar */}
           <div className="flex items-center gap-2 px-3 py-1.5">
             <button
               onClick={() => setOverviewExpanded(!overviewExpanded)}
-              className="text-vscForeground/80 hover:text-vscForeground flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 transition-colors duration-150"
+              className="flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 text-[var(--vscode-foreground)] opacity-70 transition-opacity duration-150 hover:opacity-100"
             >
               {overviewExpanded ? (
                 <ChevronDownIcon className="h-3 w-3" />
@@ -589,13 +551,13 @@ export function Chat() {
 
             {/* One-liner preview when collapsed */}
             {!overviewExpanded && overviewText.length > 0 && (
-              <span className="text-vscForeground/50 truncate px-1 text-[11px] leading-5">
+              <span className="truncate px-1 text-[11px] leading-5 text-[var(--vscode-foreground)] opacity-50">
                 {overviewText.split("\n")[0]}
               </span>
             )}
 
-            {!overviewExpanded && overviewRequestStart !== null && (
-              <span className="text-vscForeground/40 animate-pulse px-1 text-[11px] leading-5">
+            {!overviewExpanded && isOverviewLoading && (
+              <span className="animate-pulse px-1 text-[11px] leading-5 text-[var(--vscode-foreground)] opacity-40">
                 Generating...
               </span>
             )}
@@ -608,14 +570,14 @@ export function Chat() {
               <button
                 onClick={requestOverview}
                 title="Refresh Overview"
-                className="text-vscForeground/40 hover:text-vscForeground/70 flex cursor-pointer items-center rounded border-none bg-transparent p-1 transition-colors duration-150"
+                className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-40 transition-opacity duration-150 hover:opacity-70"
               >
                 <ArrowPathIcon className="h-3 w-3" />
               </button>
               <button
                 onClick={() => setOverviewDismissed(true)}
                 title="Dismiss"
-                className="text-vscForeground/40 hover:text-vscForeground/70 flex cursor-pointer items-center rounded border-none bg-transparent p-1 transition-colors duration-150"
+                className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-40 transition-opacity duration-150 hover:opacity-70"
               >
                 <XMarkIcon className="h-3 w-3" />
               </button>
@@ -624,18 +586,18 @@ export function Chat() {
 
           {/* Expanded full content */}
           {overviewExpanded && (
-            <div className="text-vscForeground/85 bg-vsc-editor-background/40 border-vsc-editorWidget-background/50 max-h-40 overflow-y-auto border-t px-3 py-2 text-[11px] leading-[18px]">
-              {overviewRequestStart !== null && (
-                <span className="text-vscForeground/50 animate-pulse">
+            <div className="max-h-40 overflow-y-auto border-t border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editor-background)] px-3 py-2 text-[11px] leading-[18px] text-[var(--vscode-foreground)] opacity-85">
+              {isOverviewLoading && (
+                <span className="animate-pulse opacity-50">
                   Generating overview...
                 </span>
               )}
-              {overviewRequestStart === null && overviewText.length === 0 && (
-                <span className="text-vscForeground/40">
+              {!isOverviewLoading && overviewText.length === 0 && (
+                <span className="opacity-40">
                   Overview appears here. Refresh to generate.
                 </span>
               )}
-              {overviewRequestStart === null && overviewText.length > 0 && (
+              {!isOverviewLoading && overviewText.length > 0 && (
                 <span className="whitespace-pre-wrap">{overviewText}</span>
               )}
             </div>
@@ -650,14 +612,6 @@ export function Chat() {
         {highlights}
         {history.map((item, index: number) => {
           if (item.message.role === "system") {
-            return null;
-          }
-
-          if (hiddenOverviewMessageIds.has(item.message.id)) {
-            return null;
-          }
-
-          if (overviewRequestStart !== null && index >= overviewRequestStart) {
             return null;
           }
 
@@ -724,12 +678,14 @@ export function Chat() {
 
         {!isInEdit && detailQuickActions.length > 0 && (
           <div className="flex flex-row items-center justify-center gap-2 px-1 pb-1 pt-2">
-            <span className="text-description text-[11px]">Quick Actions:</span>
+            <span className="text-[11px] text-[var(--vscode-descriptionForeground)]">
+              Quick Actions:
+            </span>
             {detailQuickActions.map(
-              ({ label, codebasePrompt, selectedCodePrompt, colorClass }) => (
+              ({ label, codebasePrompt, selectedCodePrompt }) => (
                 <button
                   key={label}
-                  className={`flex cursor-pointer items-center gap-1.5 rounded-md border bg-transparent px-2.5 py-1 text-[11px] font-medium transition-all duration-150 ${colorClass}`}
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--vscode-focusBorder)] bg-transparent px-2.5 py-1 text-[11px] font-medium text-[var(--vscode-foreground)] opacity-60 transition-all duration-150 hover:opacity-100`}
                   onClick={() => {
                     void ideMessenger.request(
                       "quickAction" as any,
@@ -740,7 +696,6 @@ export function Chat() {
                     );
                   }}
                 >
-                  <ClipboardDocumentIcon className="h-3 w-3" />
                   {label}
                 </button>
               ),

@@ -1,8 +1,6 @@
 import {
-  AtSymbolIcon,
-  LightBulbIcon as LightBulbIconOutline,
-  PhotoIcon,
-  ClipboardDocumentIcon,
+  ChatBubbleLeftRightIcon,
+  LightBulbIcon,
 } from "@heroicons/react/24/outline";
 import { LightBulbIcon as LightBulbIconSolid } from "@heroicons/react/24/solid";
 import { InputModifiers } from "core";
@@ -54,8 +52,6 @@ const quickActions = [
       "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
     selectedCodePrompt:
       "Find and explain the API endpoints in this selected code - what are they and how do they work?",
-    colorClass:
-      "text-vscForeground/70 border-purple-500/30 hover:border-purple-500/60 hover:text-purple-400",
   },
   {
     label: "Concept",
@@ -63,8 +59,6 @@ const quickActions = [
       "Explain the key concepts and architecture patterns used in this codebase.",
     selectedCodePrompt:
       "Explain the key concepts and patterns demonstrated in this selected code.",
-    colorClass:
-      "text-vscForeground/70 border-green-500/30 hover:border-green-500/60 hover:text-green-400",
   },
   {
     label: "Usage",
@@ -72,8 +66,6 @@ const quickActions = [
       "Find and explain how this codebase is typically used - show example usage patterns and common workflows.",
     selectedCodePrompt:
       "Find and explain how this selected code is typically used - show example usage patterns.",
-    colorClass:
-      "text-vscForeground/70 border-orange-500/30 hover:border-orange-500/60 hover:text-orange-400",
   },
 ];
 
@@ -279,27 +271,26 @@ function InputToolbar(props: InputToolbarProps) {
       </div>
       {!isInEdit && !props.hidden && (
         <div className="flex flex-row items-center gap-2 px-1 pb-1">
-          <span className="text-description text-[11px]">Quick Actions:</span>
-          {quickActions.map(
-            ({ label, codebasePrompt, selectedCodePrompt, colorClass }) => (
-              <button
-                key={label}
-                className={`flex cursor-pointer items-center gap-1.5 rounded-md border bg-transparent px-2.5 py-1 text-[11px] font-medium transition-all duration-150 ${colorClass}`}
-                onClick={() => {
-                  void ideMessenger.request(
-                    "quickAction" as any,
-                    {
-                      codebasePrompt,
-                      selectedCodePrompt,
-                    } as any,
-                  );
-                }}
-              >
-                <ClipboardDocumentIcon className="h-3 w-3" />
-                {label}
-              </button>
-            ),
-          )}
+          <span className="text-[11px] text-[var(--vscode-descriptionForeground)]">
+            Quick Actions:
+          </span>
+          {quickActions.map(({ label, codebasePrompt, selectedCodePrompt }) => (
+            <button
+              key={label}
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--vscode-focusBorder)] bg-transparent px-2.5 py-1 text-[11px] font-medium text-[var(--vscode-foreground)] opacity-60 transition-all duration-150 hover:opacity-100"
+              onClick={() => {
+                void ideMessenger.request(
+                  "quickAction" as any,
+                  {
+                    codebasePrompt,
+                    selectedCodePrompt,
+                  } as any,
+                );
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
     </>

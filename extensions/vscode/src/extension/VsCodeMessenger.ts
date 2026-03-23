@@ -239,6 +239,26 @@ export class VsCodeMessenger {
         this.webviewProtocol?.request("userInput", { input: promptToUse });
       }
     });
+    this.onWebview("overview/query", async (msg) => {
+      const { codebasePrompt, selectedCodePrompt } = msg.data;
+
+      let rangeInFile = getRangeInFileWithContents(false);
+      if (!rangeInFile) {
+        rangeInFile = getRangeInFileWithContents(true);
+      }
+
+      const hasSelection = !!rangeInFile;
+      const promptToUse = hasSelection ? selectedCodePrompt : codebasePrompt;
+
+      const context = rangeInFile
+        ? {
+            filepath: rangeInFile.filepath,
+            contents: rangeInFile.contents,
+          }
+        : null;
+
+      return { prompt: promptToUse, context };
+    });
     this.onWebview("edit/sendPrompt", async (msg) => {
       const prompt = msg.data.prompt;
       const { start, end } = msg.data.range.range;
