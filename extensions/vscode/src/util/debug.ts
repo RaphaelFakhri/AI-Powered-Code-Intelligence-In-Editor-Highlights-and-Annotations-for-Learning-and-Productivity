@@ -52,5 +52,3 @@ export function debugLog(message: string): void {
 
   console.log(line);
 }
-
-debugLog("Continue debug logger initialized");

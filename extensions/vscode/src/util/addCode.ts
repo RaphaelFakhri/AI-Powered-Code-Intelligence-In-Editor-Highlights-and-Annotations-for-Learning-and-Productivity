@@ -119,41 +119,20 @@ export async function addHighlightedCodeToContext(
   webviewProtocol: VsCodeWebviewProtocol | undefined,
   options?: { prompt?: string; shouldRun?: boolean },
 ): Promise<boolean> {
-  debugLog(
-    `addHighlightedCodeToContext called with options: ${JSON.stringify(options)}`,
-  );
-  const editor = getEditorForContext(false);
-  debugLog(`editorForContext: ${editor ? "exists" : "null"}`);
-
-  if (editor) {
-    debugLog(
-      `selection: ${editor.selection.isEmpty ? "empty" : "has selection"}`,
-    );
-    debugLog(`file: ${editor.document.uri.toString()}`);
+  if (!webviewProtocol) {
+    return false;
   }
 
   const rangeInFileWithContents = getRangeInFileWithContents(false);
-  debugLog(
-    `getRangeInFileWithContents result: ${rangeInFileWithContents ? "found" : "null"}`,
-  );
-  if (rangeInFileWithContents) {
-    debugLog(
-      `rangeInFileWithContents found, sending highlightedCode with shouldRun: ${options?.shouldRun}`,
-    );
-    debugLog(
-      `range contents length: ${rangeInFileWithContents.contents.length}`,
-    );
-    debugLog(`range file: ${rangeInFileWithContents.filepath}`);
-    webviewProtocol?.request("highlightedCode", {
-      rangeInFileWithContents,
-      ...options,
-    });
-    debugLog("request sent to webview");
-    return true;
+  if (!rangeInFileWithContents) {
+    return false;
   }
 
-  debugLog("NO rangeInFileWithContents found - no selection or not in editor");
-  return false;
+  await webviewProtocol.request("highlightedCode", {
+    rangeInFileWithContents,
+    ...options,
+  });
+  return true;
 }
 
 export async function addEntireFileToContext(

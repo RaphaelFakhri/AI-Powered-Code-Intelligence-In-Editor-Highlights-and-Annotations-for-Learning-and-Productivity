@@ -495,7 +495,6 @@ export function Chat() {
         <ContinueInputBox
           isMainInput
           isLastUserInput={false}
-          hidden={history.length === 0}
           onEnter={(editorState, modifiers, editor) =>
             sendInput(editorState, modifiers, undefined, editor)
           }

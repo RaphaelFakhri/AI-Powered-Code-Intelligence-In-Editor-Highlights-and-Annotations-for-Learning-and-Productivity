@@ -274,7 +274,7 @@ function InputToolbar(props: InputToolbarProps) {
           </ToolTip>
         </div>
       </div>
-      {!isInEdit && (
+      {!isInEdit && !props.hidden && (
         <div className="flex flex-row items-center gap-2 px-1 pb-1">
           <span className="text-description text-xs">Quick Actions:</span>
           {quickActions.map(
