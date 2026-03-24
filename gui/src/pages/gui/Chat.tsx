@@ -2,8 +2,6 @@ import {
   ArrowLeftIcon,
   ArrowPathIcon,
   ChatBubbleOvalLeftIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Editor, JSONContent } from "@tiptap/react";
@@ -152,8 +150,11 @@ export function Chat() {
   const [stepsOpen] = useState<(boolean | undefined)[]>([]);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
   const [overviewText, setOverviewText] = useState("");
+  const [overviewContext, setOverviewContext] = useState<{
+    filepath: string;
+    contents: string;
+  } | null>(null);
   const [isOverviewLoading, setIsOverviewLoading] = useState(false);
-  const [overviewExpanded, setOverviewExpanded] = useState(false);
   const [overviewDismissed, setOverviewDismissed] = useState(false);
   const hasAutoTriggeredOverview = useRef(false);
   const mainTextInputRef = useRef<HTMLInputElement>(null);
@@ -496,6 +497,7 @@ export function Chat() {
       }
 
       const { prompt, context } = contextResult.content;
+      setOverviewContext(context);
       let fullPrompt = prompt;
       if (context) {
         fullPrompt += `\n\nFile: ${context.filepath}\n\`\`\`\n${context.contents}\n\`\`\``;
@@ -533,176 +535,177 @@ export function Chat() {
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
 
-      {!isInEdit && overviewAction && !overviewDismissed && (
-        <div className="sticky top-0 z-20 border-b border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editorWidget-background)]">
-          {/* Compact header bar */}
-          <div className="flex items-center gap-2 px-3 py-1.5">
-            <button
-              onClick={() => setOverviewExpanded(!overviewExpanded)}
-              className="flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 text-[var(--vscode-foreground)] opacity-70 transition-opacity duration-150 hover:opacity-100"
-            >
-              {overviewExpanded ? (
-                <ChevronDownIcon className="h-3 w-3" />
-              ) : (
-                <ChevronRightIcon className="h-3 w-3" />
+      {/* Dashboard: visible when no chat history */}
+      {!isInEdit &&
+        history.length === 0 &&
+        !overviewDismissed &&
+        overviewAction && (
+          <div className="flex flex-1 flex-col">
+            {/* Context rectangle */}
+            <div className="border-b border-[var(--vscode-editorWidget-border)] px-4 py-3">
+              <div className="text-[11px] font-medium text-[var(--vscode-descriptionForeground)]">
+                {overviewContext
+                  ? overviewContext.filepath.split("/").pop()
+                  : "Codebase"}
+              </div>
+              {overviewContext && (
+                <div className="mt-1 max-h-20 overflow-y-auto rounded bg-[var(--vscode-editor-background)] px-2.5 py-1.5 text-[11px] leading-5 text-[var(--vscode-foreground)] opacity-60">
+                  <pre className="whitespace-pre-wrap font-[var(--vscode-editor-font-family)]">
+                    {overviewContext.contents.slice(0, 400)}
+                    {overviewContext.contents.length > 400 ? "\n..." : ""}
+                  </pre>
+                </div>
               )}
-              <span className="text-xs font-medium">Overview</span>
-            </button>
-
-            {/* One-liner preview when collapsed */}
-            {!overviewExpanded && overviewText.length > 0 && (
-              <span className="truncate px-1 text-[11px] leading-5 text-[var(--vscode-foreground)] opacity-50">
-                {overviewText.split("\n")[0]}
-              </span>
-            )}
-
-            {!overviewExpanded && isOverviewLoading && (
-              <span className="animate-pulse px-1 text-[11px] leading-5 text-[var(--vscode-foreground)] opacity-40">
-                Generating...
-              </span>
-            )}
-
-            {/* Spacer */}
-            <div className="flex-1" />
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={requestOverview}
-                title="Refresh Overview"
-                className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-40 transition-opacity duration-150 hover:opacity-70"
-              >
-                <ArrowPathIcon className="h-3 w-3" />
-              </button>
-              <button
-                onClick={() => setOverviewDismissed(true)}
-                title="Dismiss"
-                className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-40 transition-opacity duration-150 hover:opacity-70"
-              >
-                <XMarkIcon className="h-3 w-3" />
-              </button>
+              {!overviewContext && !isOverviewLoading && (
+                <div className="mt-1 text-[11px] text-[var(--vscode-foreground)] opacity-40">
+                  No file open — analyzing workspace
+                </div>
+              )}
             </div>
-          </div>
 
-          {/* Expanded full content */}
-          {overviewExpanded && (
-            <div className="max-h-40 overflow-y-auto border-t border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editor-background)] px-3 py-2 text-[11px] leading-[18px] text-[var(--vscode-foreground)] opacity-85">
-              {isOverviewLoading && (
-                <span className="animate-pulse opacity-50">
-                  Generating overview...
+            {/* Overview rectangle */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[11px] font-medium text-[var(--vscode-descriptionForeground)]">
+                  Overview
                 </span>
-              )}
-              {!isOverviewLoading && overviewText.length === 0 && (
-                <span className="opacity-40">
-                  Overview appears here. Refresh to generate.
-                </span>
-              )}
-              {!isOverviewLoading && overviewText.length > 0 && (
-                <span className="whitespace-pre-wrap">{overviewText}</span>
-              )}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={requestOverview}
+                    title="Refresh"
+                    className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-30 transition-opacity duration-150 hover:opacity-60"
+                  >
+                    <ArrowPathIcon className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => setOverviewDismissed(true)}
+                    title="Dismiss"
+                    className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-30 transition-opacity duration-150 hover:opacity-60"
+                  >
+                    <XMarkIcon className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+              <div className="rounded border border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editor-background)] px-3 py-2.5 text-[12px] leading-5 text-[var(--vscode-foreground)]">
+                {isOverviewLoading && (
+                  <span className="animate-pulse opacity-50">
+                    Generating overview...
+                  </span>
+                )}
+                {!isOverviewLoading && overviewText.length === 0 && (
+                  <span className="opacity-40">
+                    Overview will appear here once generated.
+                  </span>
+                )}
+                {!isOverviewLoading && overviewText.length > 0 && (
+                  <span className="whitespace-pre-wrap">{overviewText}</span>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      )}
 
-      <StepsDiv
-        ref={stepsDivRef}
-        className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
-      >
-        {highlights}
-        {history.map((item, index: number) => {
-          if (item.message.role === "system") {
-            return null;
-          }
-
-          return (
-            <div
-              key={item.message.id}
-              style={{
-                minHeight: index === history.length - 1 ? "200px" : 0,
-              }}
-            >
-              <ErrorBoundary
-                FallbackComponent={fallbackRender}
-                onReset={() => {
-                  dispatch(newSession());
-                }}
-              >
-                {renderChatHistoryItem(item, index)}
-              </ErrorBoundary>
-              {index === history.length - 1 && <InlineErrorMessage />}
+            {/* Quick actions rectangle */}
+            <div className="border-t border-[var(--vscode-editorWidget-border)] px-4 py-2.5">
+              <div className="flex items-center justify-center gap-2">
+                {detailQuickActions.map(
+                  ({ label, codebasePrompt, selectedCodePrompt }) => (
+                    <button
+                      key={label}
+                      className="flex cursor-pointer items-center rounded-md border border-[var(--vscode-focusBorder)] bg-transparent px-3 py-1.5 text-[11px] font-medium text-[var(--vscode-foreground)] opacity-60 transition-all duration-150 hover:opacity-100"
+                      onClick={() => {
+                        void ideMessenger.request(
+                          "quickAction" as any,
+                          {
+                            codebasePrompt,
+                            selectedCodePrompt,
+                          } as any,
+                        );
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ),
+                )}
+              </div>
             </div>
-          );
-        })}
-      </StepsDiv>
-      <div className={"relative"}>
-        <ContinueInputBox
-          isMainInput
-          isLastUserInput={false}
-          onEnter={(editorState, modifiers, editor) =>
-            sendInput(editorState, modifiers, undefined, editor)
-          }
-          inputId={MAIN_EDITOR_INPUT_ID}
-        />
-
-        <div
-          style={{
-            pointerEvents: isStreaming ? "none" : "auto",
-          }}
-        >
-          <div className="flex flex-row items-center justify-between pb-1 pl-0.5 pr-2">
-            <div className="xs:inline hidden">
-              {history.length === 0 && lastSessionId && !isInEdit && (
-                <NewSessionButton
-                  onClick={async () => {
-                    await dispatch(loadLastSession());
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <ArrowLeftIcon className="h-3 w-3" />
-                  <span className="text-xs">Last Session</span>
-                </NewSessionButton>
-              )}
-            </div>
-          </div>
-          <FatalErrorIndicator />
-          {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
-          {mode === "background" ? (
-            <BackgroundModeView isCreatingAgent={isCreatingAgent} />
-          ) : (
-            history.length === 0 && (
-              <EmptyChatBody showOnboardingCard={onboardingCard.show} />
-            )
-          )}
-        </div>
-
-        {!isInEdit && detailQuickActions.length > 0 && (
-          <div className="flex flex-row items-center justify-center gap-2 px-1 pb-1 pt-2">
-            <span className="text-[11px] text-[var(--vscode-descriptionForeground)]">
-              Quick Actions:
-            </span>
-            {detailQuickActions.map(
-              ({ label, codebasePrompt, selectedCodePrompt }) => (
-                <button
-                  key={label}
-                  className={`flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--vscode-focusBorder)] bg-transparent px-2.5 py-1 text-[11px] font-medium text-[var(--vscode-foreground)] opacity-60 transition-all duration-150 hover:opacity-100`}
-                  onClick={() => {
-                    void ideMessenger.request(
-                      "quickAction" as any,
-                      {
-                        codebasePrompt,
-                        selectedCodePrompt,
-                      } as any,
-                    );
-                  }}
-                >
-                  {label}
-                </button>
-              ),
-            )}
           </div>
         )}
-      </div>
+
+      {/* Chat interface: visible when history exists or during edit */}
+      {(history.length > 0 || isInEdit) && (
+        <>
+          <StepsDiv
+            ref={stepsDivRef}
+            className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
+          >
+            {highlights}
+            {history.map((item, index: number) => {
+              if (item.message.role === "system") {
+                return null;
+              }
+
+              return (
+                <div
+                  key={item.message.id}
+                  style={{
+                    minHeight: index === history.length - 1 ? "200px" : 0,
+                  }}
+                >
+                  <ErrorBoundary
+                    FallbackComponent={fallbackRender}
+                    onReset={() => {
+                      dispatch(newSession());
+                    }}
+                  >
+                    {renderChatHistoryItem(item, index)}
+                  </ErrorBoundary>
+                  {index === history.length - 1 && <InlineErrorMessage />}
+                </div>
+              );
+            })}
+          </StepsDiv>
+          <div className={"relative"}>
+            <ContinueInputBox
+              isMainInput
+              isLastUserInput={false}
+              onEnter={(editorState, modifiers, editor) =>
+                sendInput(editorState, modifiers, undefined, editor)
+              }
+              inputId={MAIN_EDITOR_INPUT_ID}
+            />
+
+            <div
+              style={{
+                pointerEvents: isStreaming ? "none" : "auto",
+              }}
+            >
+              <div className="flex flex-row items-center justify-between pb-1 pl-0.5 pr-2">
+                <div className="xs:inline hidden">
+                  {history.length === 0 && lastSessionId && !isInEdit && (
+                    <NewSessionButton
+                      onClick={async () => {
+                        await dispatch(loadLastSession());
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <ArrowLeftIcon className="h-3 w-3" />
+                      <span className="text-xs">Last Session</span>
+                    </NewSessionButton>
+                  )}
+                </div>
+              </div>
+              <FatalErrorIndicator />
+              {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
+              {mode === "background" ? (
+                <BackgroundModeView isCreatingAgent={isCreatingAgent} />
+              ) : (
+                history.length === 0 && (
+                  <EmptyChatBody showOnboardingCard={onboardingCard.show} />
+                )
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }
