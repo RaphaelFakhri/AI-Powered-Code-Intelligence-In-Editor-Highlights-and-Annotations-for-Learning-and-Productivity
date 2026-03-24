@@ -492,6 +492,7 @@ export function Chat() {
       });
 
       if (contextResult.status !== "success") {
+        console.error("overview/query failed:", contextResult);
         setOverviewText("Failed to get context.");
         return;
       }
@@ -512,9 +513,11 @@ export function Chat() {
       if (llmResult.status === "success") {
         setOverviewText(llmResult.content);
       } else {
+        console.error("llm/complete failed:", llmResult);
         setOverviewText("Failed to generate overview.");
       }
-    } catch {
+    } catch (e) {
+      console.error("requestOverview error:", e);
       setOverviewText("Failed to generate overview.");
     } finally {
       setIsOverviewLoading(false);
