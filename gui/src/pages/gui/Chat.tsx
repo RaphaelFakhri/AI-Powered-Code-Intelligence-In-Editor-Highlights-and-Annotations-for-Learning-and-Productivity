@@ -1,7 +1,8 @@
 import {
   ArrowLeftIcon,
+  ArrowPathIcon,
   ChatBubbleOvalLeftIcon,
-  ClipboardDocumentIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { Editor, JSONContent } from "@tiptap/react";
 import { ChatHistoryItem, InputModifiers } from "core";
@@ -49,6 +50,7 @@ import { useStore } from "react-redux";
 import { BackgroundModeView } from "../../components/BackgroundMode/BackgroundModeView";
 import FeedbackDialog from "../../components/dialogs/FeedbackDialog";
 
+import { selectSelectedChatModel } from "../../redux/slices/configSlice";
 import { FatalErrorIndicator } from "../../components/config/FatalErrorNotice";
 import InlineErrorMessage from "../../components/mainInput/InlineErrorMessage";
 import { resolveEditorContent } from "../../components/mainInput/TipTapEditor/utils/resolveEditorContent";
@@ -89,10 +91,9 @@ const quickActions = [
   {
     label: "Overview",
     codebasePrompt:
-      "Give me an overview of this codebase - what are the most important folders and what do they do?",
+      "In 4 concise bullets, summarize this codebase: purpose, key folders, main execution flow, and where to start. Keep it under 90 words.",
     selectedCodePrompt:
-      "Give me an overview of this selected code - explain what it does and how it works.",
-    colorClass: "bg-blue-600 hover:bg-blue-500",
+      "In 4 concise bullets, summarize this selected code: purpose, inputs/outputs, core logic, and important dependencies. Keep it under 70 words.",
   },
   {
     label: "API",
@@ -100,7 +101,6 @@ const quickActions = [
       "Find and explain the main API endpoints in this codebase - what are they and how do they work?",
     selectedCodePrompt:
       "Find and explain the API endpoints in this selected code - what are they and how do they work?",
-    colorClass: "bg-purple-600 hover:bg-purple-500",
   },
   {
     label: "Concept",
@@ -108,7 +108,13 @@ const quickActions = [
       "Explain the key concepts and architecture patterns used in this codebase.",
     selectedCodePrompt:
       "Explain the key concepts and patterns demonstrated in this selected code.",
-    colorClass: "bg-green-600 hover:bg-green-500",
+  },
+  {
+    label: "Usage",
+    codebasePrompt:
+      "Find and explain how this codebase is typically used - show example usage patterns and common workflows.",
+    selectedCodePrompt:
+      "Find and explain how this selected code is typically used - show example usage patterns.",
   },
 ];
 
@@ -143,6 +149,14 @@ export function Chat() {
   const isStreaming = useAppSelector((state) => state.session.isStreaming);
   const [stepsOpen] = useState<(boolean | undefined)[]>([]);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [overviewText, setOverviewText] = useState("");
+  const [overviewContext, setOverviewContext] = useState<{
+    filepath: string;
+    contents: string;
+  } | null>(null);
+  const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+  const [overviewDismissed, setOverviewDismissed] = useState(false);
+  const hasAutoTriggeredOverview = useRef(false);
   const mainTextInputRef = useRef<HTMLInputElement>(null);
   const stepsDivRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -459,105 +473,242 @@ export function Chat() {
   );
 
   const showScrollbar = showChatScrollbar ?? window.innerHeight > 5000;
+  const overviewAction = quickActions.find((a) => a.label === "Overview");
+  const detailQuickActions = quickActions.filter((a) => a.label !== "Overview");
+
+  const selectedModel = useAppSelector(selectSelectedChatModel);
+
+  const requestOverview = useCallback(async () => {
+    if (!overviewAction || isOverviewLoading) {
+      return;
+    }
+
+    setIsOverviewLoading(true);
+
+    try {
+      const contextResult = await ideMessenger.request("overview/query", {
+        codebasePrompt: overviewAction.codebasePrompt,
+        selectedCodePrompt: overviewAction.selectedCodePrompt,
+      });
+
+      if (contextResult.status !== "success") {
+        console.error("overview/query failed:", contextResult);
+        setOverviewText("Failed to get context.");
+        return;
+      }
+
+      const { prompt, context } = contextResult.content;
+      setOverviewContext(context);
+      let fullPrompt = prompt;
+      if (context) {
+        fullPrompt += `\n\nFile: ${context.filepath}\n\`\`\`\n${context.contents}\n\`\`\``;
+      }
+
+      const llmResult = await ideMessenger.request("llm/complete", {
+        prompt: fullPrompt,
+        completionOptions: { maxTokens: 500 },
+        title: selectedModel?.title ?? "",
+      });
+
+      if (llmResult.status === "success") {
+        setOverviewText(llmResult.content);
+      } else {
+        console.error("llm/complete failed:", llmResult);
+        setOverviewText("Failed to generate overview.");
+      }
+    } catch (e) {
+      console.error("requestOverview error:", e);
+      setOverviewText("Failed to generate overview.");
+    } finally {
+      setIsOverviewLoading(false);
+    }
+  }, [overviewAction, isOverviewLoading, ideMessenger, selectedModel]);
+
+  useEffect(() => {
+    if (hasAutoTriggeredOverview.current || isInEdit || !overviewAction) {
+      return;
+    }
+
+    hasAutoTriggeredOverview.current = true;
+    void requestOverview();
+  }, [isInEdit, overviewAction, requestOverview]);
 
   return (
     <>
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
 
-      <StepsDiv
-        ref={stepsDivRef}
-        className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
-      >
-        {highlights}
-        {history
-          .filter((item) => item.message.role !== "system")
-          .map((item, index: number) => (
+      {/* Dashboard: visible when no chat history */}
+      {!isInEdit &&
+        history.length === 0 &&
+        !overviewDismissed &&
+        overviewAction && (
+          <div className="flex flex-1 flex-col">
+            {/* Context rectangle */}
+            <div className="border-b border-[var(--vscode-editorWidget-border)] px-4 py-3">
+              <div className="text-[11px] font-medium text-[var(--vscode-descriptionForeground)]">
+                {overviewContext
+                  ? overviewContext.filepath.split("/").pop()
+                  : "Codebase"}
+              </div>
+              {overviewContext && (
+                <div className="mt-1 max-h-20 overflow-y-auto rounded bg-[var(--vscode-editor-background)] px-2.5 py-1.5 text-[11px] leading-5 text-[var(--vscode-foreground)] opacity-60">
+                  <pre className="whitespace-pre-wrap font-[var(--vscode-editor-font-family)]">
+                    {overviewContext.contents.slice(0, 400)}
+                    {overviewContext.contents.length > 400 ? "\n..." : ""}
+                  </pre>
+                </div>
+              )}
+              {!overviewContext && !isOverviewLoading && (
+                <div className="mt-1 text-[11px] text-[var(--vscode-foreground)] opacity-40">
+                  No file open — analyzing workspace
+                </div>
+              )}
+            </div>
+
+            {/* Overview rectangle */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[11px] font-medium text-[var(--vscode-descriptionForeground)]">
+                  Overview
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={requestOverview}
+                    title="Refresh"
+                    className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-30 transition-opacity duration-150 hover:opacity-60"
+                  >
+                    <ArrowPathIcon className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => setOverviewDismissed(true)}
+                    title="Dismiss"
+                    className="flex cursor-pointer items-center rounded border-none bg-transparent p-1 text-[var(--vscode-foreground)] opacity-30 transition-opacity duration-150 hover:opacity-60"
+                  >
+                    <XMarkIcon className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+              <div className="rounded border border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editor-background)] px-3 py-2.5 text-[12px] leading-5 text-[var(--vscode-foreground)]">
+                {isOverviewLoading && (
+                  <span className="animate-pulse opacity-50">
+                    Generating overview...
+                  </span>
+                )}
+                {!isOverviewLoading && overviewText.length === 0 && (
+                  <span className="opacity-40">
+                    Overview will appear here once generated.
+                  </span>
+                )}
+                {!isOverviewLoading && overviewText.length > 0 && (
+                  <span className="whitespace-pre-wrap">{overviewText}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Quick actions rectangle */}
+            <div className="border-t border-[var(--vscode-editorWidget-border)] px-4 py-2.5">
+              <div className="flex items-center justify-center gap-2">
+                {detailQuickActions.map(
+                  ({ label, codebasePrompt, selectedCodePrompt }) => (
+                    <button
+                      key={label}
+                      className="flex cursor-pointer items-center rounded-md border border-[var(--vscode-focusBorder)] bg-transparent px-3 py-1.5 text-[11px] font-medium text-[var(--vscode-foreground)] opacity-60 transition-all duration-150 hover:opacity-100"
+                      onClick={() => {
+                        void ideMessenger.request(
+                          "quickAction" as any,
+                          {
+                            codebasePrompt,
+                            selectedCodePrompt,
+                          } as any,
+                        );
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Chat interface: visible when history exists or during edit */}
+      {(history.length > 0 || isInEdit) && (
+        <>
+          <StepsDiv
+            ref={stepsDivRef}
+            className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
+          >
+            {highlights}
+            {history.map((item, index: number) => {
+              if (item.message.role === "system") {
+                return null;
+              }
+
+              return (
+                <div
+                  key={item.message.id}
+                  style={{
+                    minHeight: index === history.length - 1 ? "200px" : 0,
+                  }}
+                >
+                  <ErrorBoundary
+                    FallbackComponent={fallbackRender}
+                    onReset={() => {
+                      dispatch(newSession());
+                    }}
+                  >
+                    {renderChatHistoryItem(item, index)}
+                  </ErrorBoundary>
+                  {index === history.length - 1 && <InlineErrorMessage />}
+                </div>
+              );
+            })}
+          </StepsDiv>
+          <div className={"relative"}>
+            <ContinueInputBox
+              isMainInput
+              isLastUserInput={false}
+              onEnter={(editorState, modifiers, editor) =>
+                sendInput(editorState, modifiers, undefined, editor)
+              }
+              inputId={MAIN_EDITOR_INPUT_ID}
+            />
+
             <div
-              key={item.message.id}
               style={{
-                minHeight: index === history.length - 1 ? "200px" : 0,
+                pointerEvents: isStreaming ? "none" : "auto",
               }}
             >
-              <ErrorBoundary
-                FallbackComponent={fallbackRender}
-                onReset={() => {
-                  dispatch(newSession());
-                }}
-              >
-                {renderChatHistoryItem(item, index)}
-              </ErrorBoundary>
-              {index === history.length - 1 && <InlineErrorMessage />}
-            </div>
-          ))}
-      </StepsDiv>
-      <div className={"relative"}>
-        <ContinueInputBox
-          isMainInput
-          isLastUserInput={false}
-          onEnter={(editorState, modifiers, editor) =>
-            sendInput(editorState, modifiers, undefined, editor)
-          }
-          inputId={MAIN_EDITOR_INPUT_ID}
-        />
-
-        <div
-          style={{
-            pointerEvents: isStreaming ? "none" : "auto",
-          }}
-        >
-          <div className="flex flex-row items-center justify-between pb-1 pl-0.5 pr-2">
-            <div className="xs:inline hidden">
-              {history.length === 0 && lastSessionId && !isInEdit && (
-                <NewSessionButton
-                  onClick={async () => {
-                    await dispatch(loadLastSession());
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <ArrowLeftIcon className="h-3 w-3" />
-                  <span className="text-xs">Last Session</span>
-                </NewSessionButton>
+              <div className="flex flex-row items-center justify-between pb-1 pl-0.5 pr-2">
+                <div className="xs:inline hidden">
+                  {history.length === 0 && lastSessionId && !isInEdit && (
+                    <NewSessionButton
+                      onClick={async () => {
+                        await dispatch(loadLastSession());
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <ArrowLeftIcon className="h-3 w-3" />
+                      <span className="text-xs">Last Session</span>
+                    </NewSessionButton>
+                  )}
+                </div>
+              </div>
+              <FatalErrorIndicator />
+              {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
+              {mode === "background" ? (
+                <BackgroundModeView isCreatingAgent={isCreatingAgent} />
+              ) : (
+                history.length === 0 && (
+                  <EmptyChatBody showOnboardingCard={onboardingCard.show} />
+                )
               )}
             </div>
           </div>
-          <FatalErrorIndicator />
-          {!hasDismissedExploreDialog && <ExploreDialogWatcher />}
-          {mode === "background" ? (
-            <BackgroundModeView isCreatingAgent={isCreatingAgent} />
-          ) : (
-            history.length === 0 && (
-              <EmptyChatBody showOnboardingCard={onboardingCard.show} />
-            )
-          )}
-        </div>
-
-        {!isInEdit && (
-          <div className="flex flex-row items-center justify-center gap-2 px-1 pb-1 pt-2">
-            <span className="text-description text-xs">Quick Actions:</span>
-            {quickActions.map(
-              ({ label, codebasePrompt, selectedCodePrompt, colorClass }) => (
-                <button
-                  key={label}
-                  className={`flex cursor-pointer items-center gap-1.5 rounded border-none ${colorClass} px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-200`}
-                  onClick={() => {
-                    void ideMessenger.request(
-                      "quickAction" as any,
-                      {
-                        codebasePrompt,
-                        selectedCodePrompt,
-                      } as any,
-                    );
-                  }}
-                >
-                  <ClipboardDocumentIcon className="h-4 w-4" />
-                  {label}
-                </button>
-              ),
-            )}
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </>
   );
 }
