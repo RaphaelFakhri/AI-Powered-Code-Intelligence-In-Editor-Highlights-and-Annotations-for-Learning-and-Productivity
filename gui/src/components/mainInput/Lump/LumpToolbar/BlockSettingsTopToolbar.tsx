@@ -5,7 +5,7 @@ import {
   PencilIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
-import { useContext } from "react";
+import { useContext, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { IdeMessengerContext } from "../../../../context/IdeMessenger";
 import { useAppDispatch, useAppSelector } from "../../../../redux/hooks";
@@ -23,10 +23,31 @@ import { useCreditStatus } from "../../../../hooks/useCredits";
 import { CONFIG_ROUTES } from "../../../../util/navigation";
 import { AssistantAndOrgListbox } from "../../../AssistantAndOrgListbox";
 
+interface SelectionInfo {
+  filepath: string | null;
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  } | null;
+}
+
 export function BlockSettingsTopToolbar() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { selectedProfile } = useAuth();
+  const [selection, setSelection] = useState<SelectionInfo | null>(null);
+
+  useEffect(() => {
+    const listener = (event: any) => {
+      console.log("Received message:", event.data?.messageType, event.data);
+      if (event.data?.messageType === "selectionChange") {
+        console.log("Setting selection:", event.data.data);
+        setSelection(event.data.data);
+      }
+    };
+    window.addEventListener("message", listener);
+    return () => window.removeEventListener("message", listener);
+  }, []);
 
   const configError = useAppSelector((store) => store.config.configError);
   const ideMessenger = useContext(IdeMessengerContext);
@@ -87,8 +108,12 @@ export function BlockSettingsTopToolbar() {
           <button className="rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white">
             Get Started
           </button>
-          <button className="w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black">
-            test.js: 18-25
+          <button className="min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black">
+            {selection?.filepath && selection?.range
+              ? `${selection.filepath.split("/").pop()}: ${selection.range.start.line + 1}-${selection.range.end.line + 1}`
+              : selection?.filepath
+                ? selection.filepath.split("/").pop()
+                : "No file"}
           </button>
         </div>
       </div>

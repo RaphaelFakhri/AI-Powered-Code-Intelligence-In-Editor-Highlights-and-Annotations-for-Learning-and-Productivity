@@ -97,6 +97,16 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
   setCodeToEdit: [SetCodeToEditPayload, void];
   navigateTo: [{ path: string; toggle?: boolean }, void];
   addModel: [undefined, void];
+  selectionChange: [
+    {
+      filepath: string | null;
+      range: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+      } | null;
+    },
+    void,
+  ];
 
   focusContinueSessionId: [{ sessionId: string | undefined }, void];
   newSession: [undefined, void];

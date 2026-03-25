@@ -597,6 +597,30 @@ export class VsCodeExtension {
       await selectionManager.handleSelectionChange(e);
     });
 
+    // Lightweight listener for updating selection button in toolbar
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      const selection = e.selections[0];
+      const currentFilePath = e.textEditor.document.uri.toString();
+      if (!selection || selection.isEmpty) {
+        this.sidebar.webviewProtocol.send("selectionChange", {
+          filepath: currentFilePath,
+          range: null,
+        });
+        return;
+      }
+      const range = {
+        start: {
+          line: selection.start.line,
+          character: selection.start.character,
+        },
+        end: { line: selection.end.line, character: selection.end.character },
+      };
+      this.sidebar.webviewProtocol.send("selectionChange", {
+        filepath: currentFilePath,
+        range,
+      });
+    });
+
     // Refresh index when branch is changed
     void this.ide.getWorkspaceDirs().then((dirs) =>
       dirs.forEach(async (dir) => {
