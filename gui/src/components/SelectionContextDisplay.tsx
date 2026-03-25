@@ -25,23 +25,28 @@ function SelectionContextDisplay({
   const ideMessenger = useContext(IdeMessengerContext);
   const selection = selectionProp ?? contextSelection;
 
-  if (!selection?.range || !selection?.content) {
+  if (!selection?.content) {
     return null;
   }
 
   const filepath = selection.filepath;
   const basename = filepath ? getUriPathBasename(filepath) : "unknown";
-  const lineInfo = `${selection.range.start.line + 1}-${selection.range.end.line + 1}`;
-  const title = `${basename} (${lineInfo})`;
+  const title = selection.range
+    ? `${basename} (${selection.range.start.line + 1}-${selection.range.end.line + 1})`
+    : `${basename} (entire file)`;
   const source = `\`\`\`${getMarkdownLanguageTagForFile(basename)} ${title}\n${selection.content}\n\`\`\``;
 
   const handleClick = () => {
-    if (filepath && selection.range) {
-      ideMessenger.ide.showLines(
-        filepath,
-        selection.range.start.line,
-        selection.range.end.line,
-      );
+    if (filepath) {
+      if (selection.range) {
+        ideMessenger.ide.showLines(
+          filepath,
+          selection.range.start.line,
+          selection.range.end.line,
+        );
+      } else {
+        ideMessenger.ide.showLines(filepath, 0, 0);
+      }
     }
   };
 

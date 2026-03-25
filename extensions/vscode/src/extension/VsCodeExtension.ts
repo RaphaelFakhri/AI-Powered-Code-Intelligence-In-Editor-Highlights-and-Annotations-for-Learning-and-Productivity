@@ -602,10 +602,12 @@ export class VsCodeExtension {
       const selection = e.selections[0];
       const currentFilePath = e.textEditor.document.uri.toString();
       if (!selection || selection.isEmpty) {
+        // Send entire file content when no selection
+        const fullContent = e.textEditor.document.getText();
         this.sidebar.webviewProtocol.send("selectionChange", {
           filepath: currentFilePath,
           range: null,
-          content: null,
+          content: fullContent,
         });
         return;
       }
