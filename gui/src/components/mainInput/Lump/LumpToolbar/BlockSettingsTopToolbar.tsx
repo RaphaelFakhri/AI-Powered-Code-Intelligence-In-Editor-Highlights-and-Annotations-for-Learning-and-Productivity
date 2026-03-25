@@ -5,7 +5,7 @@ import {
   PencilIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { IdeMessengerContext } from "../../../../context/IdeMessenger";
 import { useAppDispatch, useAppSelector } from "../../../../redux/hooks";
@@ -31,11 +31,22 @@ export function BlockSettingsTopToolbar() {
   const { selection, setSelection, launchStarted, startLaunch } =
     useSelection();
   const [shimmerGetStarted, setShimmerGetStarted] = useState(false);
+  const [shimmerSelection, setShimmerSelection] = useState(false);
+  const shimmerRef = useRef({ getStarted: false, selection: false });
+
+  useEffect(() => {
+    shimmerRef.current.getStarted = shimmerGetStarted;
+    shimmerRef.current.selection = shimmerSelection;
+  }, [shimmerGetStarted, shimmerSelection]);
 
   useEffect(() => {
     const listener = (event: any) => {
       if (event.data?.messageType === "selectionChange") {
         setSelection(event.data.data);
+        if (shimmerRef.current.getStarted || shimmerRef.current.selection) {
+          setShimmerGetStarted(false);
+          setShimmerSelection(false);
+        }
       }
     };
     window.addEventListener("message", listener);
@@ -43,14 +54,17 @@ export function BlockSettingsTopToolbar() {
   }, [setSelection]);
 
   const handleGetStartedClick = () => {
+    if (!selection?.content) {
+      setShimmerSelection(true);
+      setTimeout(() => setShimmerSelection(false), 2000);
+      return;
+    }
     startLaunch();
   };
 
   const handleSelectionClick = () => {
-    if (!selection?.range) {
-      setShimmerGetStarted(true);
-      setTimeout(() => setShimmerGetStarted(false), 2000);
-    }
+    setShimmerGetStarted(true);
+    setTimeout(() => setShimmerGetStarted(false), 2000);
   };
 
   const configError = useAppSelector((store) => store.config.configError);
@@ -117,7 +131,7 @@ export function BlockSettingsTopToolbar() {
             </button>
             <button
               onClick={handleSelectionClick}
-              className="min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black"
+              className={`min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black ${shimmerSelection ? "animate-shimmer animate-shimmer-active" : ""}`}
             >
               {selection?.filepath && selection?.range
                 ? `${selection.filepath.split("/").pop()}: ${selection.range.start.line + 1}-${selection.range.end.line + 1}`
