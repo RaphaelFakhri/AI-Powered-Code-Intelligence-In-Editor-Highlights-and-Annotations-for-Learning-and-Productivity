@@ -5,6 +5,7 @@ import { PersistGate } from "redux-persist/integration/react";
 import App from "./App";
 import "./index.css";
 import { persistor, store } from "./redux/store";
+import { SelectionContextProvider } from "./context/SelectionContext";
 
 (async () => {
   const container = document.getElementById("root") as HTMLElement;
@@ -16,7 +17,9 @@ import { persistor, store } from "./redux/store";
     <React.StrictMode>
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
-          <App />
+          <SelectionContextProvider>
+            <App />
+          </SelectionContextProvider>
         </PersistGate>
       </Provider>
     </React.StrictMode>,

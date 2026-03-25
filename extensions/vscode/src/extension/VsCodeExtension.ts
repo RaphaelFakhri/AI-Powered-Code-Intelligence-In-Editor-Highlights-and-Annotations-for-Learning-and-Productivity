@@ -605,6 +605,7 @@ export class VsCodeExtension {
         this.sidebar.webviewProtocol.send("selectionChange", {
           filepath: currentFilePath,
           range: null,
+          content: null,
         });
         return;
       }
@@ -615,9 +616,11 @@ export class VsCodeExtension {
         },
         end: { line: selection.end.line, character: selection.end.character },
       };
+      const selectedText = e.textEditor.document.getText(selection);
       this.sidebar.webviewProtocol.send("selectionChange", {
         filepath: currentFilePath,
         range,
+        content: selectedText,
       });
     });
 

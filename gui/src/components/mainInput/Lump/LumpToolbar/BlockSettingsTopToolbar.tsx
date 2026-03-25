@@ -22,20 +22,13 @@ import { useAuth } from "../../../../context/Auth";
 import { useCreditStatus } from "../../../../hooks/useCredits";
 import { CONFIG_ROUTES } from "../../../../util/navigation";
 import { AssistantAndOrgListbox } from "../../../AssistantAndOrgListbox";
-
-interface SelectionInfo {
-  filepath: string | null;
-  range: {
-    start: { line: number; character: number };
-    end: { line: number; character: number };
-  } | null;
-}
+import { useSelection } from "../../../../context/SelectionContext";
 
 export function BlockSettingsTopToolbar() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { selectedProfile } = useAuth();
-  const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  const { selection, setSelection } = useSelection();
   const [shimmerGetStarted, setShimmerGetStarted] = useState(false);
 
   useEffect(() => {
@@ -46,7 +39,7 @@ export function BlockSettingsTopToolbar() {
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, []);
+  }, [setSelection]);
 
   const handleSelectionClick = () => {
     setShimmerGetStarted(true);

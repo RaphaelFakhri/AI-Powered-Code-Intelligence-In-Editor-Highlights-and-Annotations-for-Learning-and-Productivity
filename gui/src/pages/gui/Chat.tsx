@@ -16,6 +16,7 @@ import {
 import { ErrorBoundary } from "react-error-boundary";
 import styled from "styled-components";
 import { Button, lightGray, vscBackground } from "../../components";
+import SelectionContextDisplay from "../../components/SelectionContextDisplay";
 import { useFindWidget } from "../../components/find/FindWidget";
 import TimelineItem from "../../components/gui/TimelineItem";
 import { NewSessionButton } from "../../components/mainInput/belowMainInput/NewSessionButton";
@@ -511,6 +512,7 @@ export function Chat() {
           )}
         </div>
       </div>
+      <SelectionContextDisplay />
     </>
   );
 }

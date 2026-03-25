@@ -104,6 +104,7 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
         start: { line: number; character: number };
         end: { line: number; character: number };
       } | null;
+      content: string | null;
     },
     void,
   ];
