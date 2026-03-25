@@ -12,6 +12,9 @@ interface SelectionInfo {
 interface SelectionContextValue {
   selection: SelectionInfo | null;
   setSelection: (selection: SelectionInfo | null) => void;
+  launchStarted: boolean;
+  frozenSelection: SelectionInfo | null;
+  startLaunch: () => void;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -22,9 +25,26 @@ export function SelectionContextProvider({
   children: ReactNode;
 }) {
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  const [launchStarted, setLaunchStarted] = useState(false);
+  const [frozenSelection, setFrozenSelection] = useState<SelectionInfo | null>(
+    null,
+  );
+
+  const startLaunch = () => {
+    setFrozenSelection(selection);
+    setLaunchStarted(true);
+  };
 
   return (
-    <SelectionContext.Provider value={{ selection, setSelection }}>
+    <SelectionContext.Provider
+      value={{
+        selection,
+        setSelection,
+        launchStarted,
+        frozenSelection,
+        startLaunch,
+      }}
+    >
       {children}
     </SelectionContext.Provider>
   );

@@ -28,7 +28,8 @@ export function BlockSettingsTopToolbar() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { selectedProfile } = useAuth();
-  const { selection, setSelection } = useSelection();
+  const { selection, setSelection, launchStarted, startLaunch } =
+    useSelection();
   const [shimmerGetStarted, setShimmerGetStarted] = useState(false);
 
   useEffect(() => {
@@ -41,9 +42,15 @@ export function BlockSettingsTopToolbar() {
     return () => window.removeEventListener("message", listener);
   }, [setSelection]);
 
+  const handleGetStartedClick = () => {
+    startLaunch();
+  };
+
   const handleSelectionClick = () => {
-    setShimmerGetStarted(true);
-    setTimeout(() => setShimmerGetStarted(false), 2000);
+    if (!selection?.range) {
+      setShimmerGetStarted(true);
+      setTimeout(() => setShimmerGetStarted(false), 2000);
+    }
   };
 
   const configError = useAppSelector((store) => store.config.configError);
@@ -93,32 +100,34 @@ export function BlockSettingsTopToolbar() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Top: Launch Overview banner - full width, negative margin to offset parent padding */}
-      <div className="-mx-2 -mt-2 rounded-2xl bg-[rgb(52,87,177)] p-6 text-center">
-        <div className="mb-2 text-sm font-bold uppercase tracking-wider text-white">
-          Launch Overview
+      {!launchStarted && (
+        <div className="-mx-2 -mt-2 rounded-2xl bg-[rgb(52,87,177)] p-6 text-center">
+          <div className="mb-2 text-sm font-bold uppercase tracking-wider text-white">
+            Launch Overview
+          </div>
+          <p className="mb-4 text-xs text-white/70">
+            Selected code will be analyzed and an overview will be generated.
+          </p>
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={handleGetStartedClick}
+              className={`rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white ${shimmerGetStarted ? "animate-shimmer animate-shimmer-active" : ""}`}
+            >
+              Get Started
+            </button>
+            <button
+              onClick={handleSelectionClick}
+              className="min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black"
+            >
+              {selection?.filepath && selection?.range
+                ? `${selection.filepath.split("/").pop()}: ${selection.range.start.line + 1}-${selection.range.end.line + 1}`
+                : selection?.filepath
+                  ? selection.filepath.split("/").pop()
+                  : "No file"}
+            </button>
+          </div>
         </div>
-        <p className="mb-4 text-xs text-white/70">
-          Selected code will be analyzed and an overview will be generated.
-        </p>
-        <div className="flex items-center justify-center gap-4">
-          <button
-            className={`rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white ${shimmerGetStarted ? "animate-shimmer animate-shimmer-active" : ""}`}
-          >
-            Get Started
-          </button>
-          <button
-            onClick={handleSelectionClick}
-            className="min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black"
-          >
-            {selection?.filepath && selection?.range
-              ? `${selection.filepath.split("/").pop()}: ${selection.range.start.line + 1}-${selection.range.end.line + 1}`
-              : selection?.filepath
-                ? selection.filepath.split("/").pop()
-                : "No file"}
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Bottom: Icons and Config dropdown */}
       <div className="flex w-full items-center justify-between gap-3">

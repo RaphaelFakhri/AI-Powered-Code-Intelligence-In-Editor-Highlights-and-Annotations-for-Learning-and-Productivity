@@ -17,6 +17,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import styled from "styled-components";
 import { Button, lightGray, vscBackground } from "../../components";
 import SelectionContextDisplay from "../../components/SelectionContextDisplay";
+import { useSelection } from "../../context/SelectionContext";
 import { useFindWidget } from "../../components/find/FindWidget";
 import TimelineItem from "../../components/gui/TimelineItem";
 import { NewSessionButton } from "../../components/mainInput/belowMainInput/NewSessionButton";
@@ -111,6 +112,7 @@ export function Chat() {
   const ideMessenger = useContext(IdeMessengerContext);
   const reduxStore = useStore<RootState>();
   const onboardingCard = useOnboardingCard();
+  const { launchStarted, frozenSelection } = useSelection();
   const showSessionTabs = useAppSelector(
     (store) => store.config.config.ui?.showSessionTabs,
   );
@@ -439,6 +441,12 @@ export function Chat() {
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
 
+      {launchStarted && frozenSelection && (
+        <div className="sticky top-0 z-30 px-2 pb-2">
+          <SelectionContextDisplay selection={frozenSelection} />
+        </div>
+      )}
+
       <StepsDiv
         ref={stepsDivRef}
         className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
@@ -506,13 +514,13 @@ export function Chat() {
           {mode === "background" ? (
             <BackgroundModeView isCreatingAgent={isCreatingAgent} />
           ) : (
-            history.length === 0 && (
+            history.length === 0 &&
+            !launchStarted && (
               <EmptyChatBody showOnboardingCard={onboardingCard.show} />
             )
           )}
         </div>
       </div>
-      <SelectionContextDisplay />
     </>
   );
 }

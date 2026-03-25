@@ -7,9 +7,23 @@ import FileIcon from "./FileIcon";
 import StyledMarkdownPreview from "./StyledMarkdownPreview";
 import { ExpandableToolbarPreview } from "./mainInput/TipTapEditor/components/ExpandableToolbarPreview";
 
-function SelectionContextDisplay() {
-  const { selection, setSelection } = useSelection();
+interface SelectionContextDisplayProps {
+  selection?: {
+    filepath: string | null;
+    range: {
+      start: { line: number; character: number };
+      end: { line: number; character: number };
+    } | null;
+    content: string | null;
+  } | null;
+}
+
+function SelectionContextDisplay({
+  selection: selectionProp,
+}: SelectionContextDisplayProps) {
+  const { selection: contextSelection, setSelection } = useSelection();
   const ideMessenger = useContext(IdeMessengerContext);
+  const selection = selectionProp ?? contextSelection;
 
   if (!selection?.range || !selection?.content) {
     return null;
@@ -32,17 +46,15 @@ function SelectionContextDisplay() {
   };
 
   return (
-    <div className="sticky bottom-0 z-20 px-2 pb-2">
-      <ExpandableToolbarPreview
-        title={title}
-        icon={<FileIcon height="16px" width="16px" filename={basename} />}
-        initiallyHidden={false}
-        onTitleClick={handleClick}
-        onDelete={() => setSelection(null)}
-      >
-        <StyledMarkdownPreview source={source} />
-      </ExpandableToolbarPreview>
-    </div>
+    <ExpandableToolbarPreview
+      title={title}
+      icon={<FileIcon height="16px" width="16px" filename={basename} />}
+      initiallyHidden={false}
+      onTitleClick={handleClick}
+      onDelete={selectionProp ? undefined : () => setSelection(null)}
+    >
+      <StyledMarkdownPreview source={source} />
+    </ExpandableToolbarPreview>
   );
 }
 
