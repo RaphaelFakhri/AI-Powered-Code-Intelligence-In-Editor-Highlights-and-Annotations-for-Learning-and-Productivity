@@ -83,9 +83,14 @@ export function BlockSettingsTopToolbar() {
         <p className="mb-4 text-xs text-white/70">
           Selected code will be analyzed and an overview will be generated.
         </p>
-        <button className="rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-100 hover:to-white">
-          Get Started
-        </button>
+        <div className="flex items-center justify-center gap-4">
+          <button className="rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white">
+            Get Started
+          </button>
+          <button className="w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black">
+            test.js: 18-25
+          </button>
+        </div>
       </div>
 
       {/* Bottom: Icons and Config dropdown */}
