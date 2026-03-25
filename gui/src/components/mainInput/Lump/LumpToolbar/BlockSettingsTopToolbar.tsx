@@ -36,18 +36,22 @@ export function BlockSettingsTopToolbar() {
   const dispatch = useAppDispatch();
   const { selectedProfile } = useAuth();
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  const [shimmerGetStarted, setShimmerGetStarted] = useState(false);
 
   useEffect(() => {
     const listener = (event: any) => {
-      console.log("Received message:", event.data?.messageType, event.data);
       if (event.data?.messageType === "selectionChange") {
-        console.log("Setting selection:", event.data.data);
         setSelection(event.data.data);
       }
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
   }, []);
+
+  const handleSelectionClick = () => {
+    setShimmerGetStarted(true);
+    setTimeout(() => setShimmerGetStarted(false), 2000);
+  };
 
   const configError = useAppSelector((store) => store.config.configError);
   const ideMessenger = useContext(IdeMessengerContext);
@@ -105,10 +109,15 @@ export function BlockSettingsTopToolbar() {
           Selected code will be analyzed and an overview will be generated.
         </p>
         <div className="flex items-center justify-center gap-4">
-          <button className="rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white">
+          <button
+            className={`rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white ${shimmerGetStarted ? "animate-shimmer animate-shimmer-active" : ""}`}
+          >
             Get Started
           </button>
-          <button className="min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black">
+          <button
+            onClick={handleSelectionClick}
+            className="min-w-[140px] rounded-full border border-white bg-transparent px-4 py-3 text-base font-medium text-white transition-all hover:bg-white hover:text-black"
+          >
             {selection?.filepath && selection?.range
               ? `${selection.filepath.split("/").pop()}: ${selection.range.start.line + 1}-${selection.range.end.line + 1}`
               : selection?.filepath

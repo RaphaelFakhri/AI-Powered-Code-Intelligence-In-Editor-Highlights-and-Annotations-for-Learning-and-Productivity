@@ -144,3 +144,21 @@ body {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 1) 40%,
+    rgba(255, 255, 200, 0.8) 50%,
+    rgba(255, 255, 255, 1) 60%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  background-size: 200% 100%;
+  background-position: 200% 0;
+  transition: background-position 2s ease-in-out;
+}
+
+.animate-shimmer-active {
+  background-position: -200% 0;
+}
