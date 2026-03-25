@@ -15,6 +15,7 @@ interface SelectionContextValue {
   launchStarted: boolean;
   frozenSelection: SelectionInfo | null;
   startLaunch: () => void;
+  resetLaunch: () => void;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -35,6 +36,12 @@ export function SelectionContextProvider({
     setLaunchStarted(true);
   };
 
+  const resetLaunch = () => {
+    setSelection(null);
+    setFrozenSelection(null);
+    setLaunchStarted(false);
+  };
+
   return (
     <SelectionContext.Provider
       value={{
@@ -43,6 +50,7 @@ export function SelectionContextProvider({
         launchStarted,
         frozenSelection,
         startLaunch,
+        resetLaunch,
       }}
     >
       {children}

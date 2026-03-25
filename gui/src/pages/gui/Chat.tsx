@@ -113,7 +113,7 @@ export function Chat() {
   const ideMessenger = useContext(IdeMessengerContext);
   const reduxStore = useStore<RootState>();
   const onboardingCard = useOnboardingCard();
-  const { launchStarted, frozenSelection } = useSelection();
+  const { launchStarted, frozenSelection, resetLaunch } = useSelection();
   const showSessionTabs = useAppSelector(
     (store) => store.config.config.ui?.showSessionTabs,
   );
@@ -299,6 +299,14 @@ export function Chat() {
       mainTextInputRef.current?.focus?.();
     },
     [mainTextInputRef],
+  );
+
+  useWebviewListener(
+    "newSession",
+    async () => {
+      resetLaunch();
+    },
+    [resetLaunch],
   );
 
   // Handle partial tool call output for streaming updates
