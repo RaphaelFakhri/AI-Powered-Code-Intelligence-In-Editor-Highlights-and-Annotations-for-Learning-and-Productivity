@@ -451,14 +451,19 @@ export function Chat() {
       {widget}
 
       {launchStarted && frozenSelection && (
-        <div className="sticky top-0 z-30 px-2 pb-2">
-          <SelectionContextDisplay selection={frozenSelection} />
-        </div>
+        <>
+          <div className="sticky top-0 z-30 px-2 pb-2">
+            <SelectionContextDisplay selection={frozenSelection} />
+          </div>
+          <div className="px-2 pb-2">
+            <AIOverviewStyle1 />
+          </div>
+        </>
       )}
 
       <StepsDiv
         ref={stepsDivRef}
-        className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 ? "flex-1" : ""}`}
+        className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 || launchStarted ? "flex-1" : ""}`}
       >
         {highlights}
         {history
@@ -530,7 +535,6 @@ export function Chat() {
           )}
         </div>
       </div>
-      <AIOverviewStyle1 />
     </>
   );
 }
