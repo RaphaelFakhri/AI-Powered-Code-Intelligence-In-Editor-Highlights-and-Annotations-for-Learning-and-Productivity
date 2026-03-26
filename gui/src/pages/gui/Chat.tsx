@@ -555,6 +555,11 @@ export function Chat() {
         const explainLabel = explainSource
           ? EXPLAIN_SOURCE_LABELS[explainSource]
           : undefined;
+        const assistantText = renderChatMessage(message).trim();
+
+        if (explainLabel && assistantText.length === 0) {
+          return null;
+        }
 
         return (
           <>
@@ -563,7 +568,7 @@ export function Chat() {
                 <span>{explainLabel}</span>
                 <button
                   onClick={() => {
-                    insertCommentAboveSelection(renderChatMessage(message));
+                    insertCommentAboveSelection(assistantText);
                   }}
                   className="group flex items-center gap-2 rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
                 >
