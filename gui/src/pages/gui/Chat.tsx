@@ -75,6 +75,12 @@ function findLatestSummaryIndex(history: ChatHistoryItem[]): number {
   return -1; // No summary found
 }
 
+const EXPLAIN_SOURCE_LABELS: Record<string, string> = {
+  "explain-api": "API >",
+  "explain-concept": "Concept >",
+  "explain-usage": "Usage >",
+};
+
 const StepsDiv = styled.div`
   position: relative;
   background-color: transparent;
@@ -413,6 +419,93 @@ export function Chat() {
     [history],
   );
 
+  const getNearestUserSource = useCallback(
+    (index: number): string | undefined => {
+      for (let i = index; i >= 0; i--) {
+        const message = history[i].message;
+        if (message.role === "user") {
+          const metadata = message.metadata as { source?: string } | undefined;
+          return metadata?.source;
+        }
+      }
+      return undefined;
+    },
+    [history],
+  );
+
+  const insertCommentAboveSelection = useCallback(
+    (text: string) => {
+      const filepath = frozenSelection?.filepath;
+      if (!filepath) return;
+
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      const line = frozenSelection.range?.start?.line ?? 1;
+      const comment = formatComment(trimmed, filepath);
+      ideMessenger.post("insertCommentAbove", {
+        filepath,
+        line,
+        comment,
+      });
+    },
+    [frozenSelection, ideMessenger],
+  );
+
+  const triggerExplain = useCallback(
+    (kind: "api" | "concept" | "usage") => {
+      if (!frozenSelection?.content) return;
+
+      const prompts: Record<typeof kind, string> = {
+        api: `Explain the API of this code:\n\n${frozenSelection.content}`,
+        concept: `Explain the concept behind this code:\n\n${frozenSelection.content}`,
+        usage: `Explain how to use this code:\n\n${frozenSelection.content}`,
+      };
+
+      const labels: Record<typeof kind, string> = {
+        api: "API ->",
+        concept: "Concept ->",
+        usage: "Usage ->",
+      };
+
+      const sources: Record<typeof kind, string> = {
+        api: "explain-api",
+        concept: "explain-concept",
+        usage: "explain-usage",
+      };
+
+      const editorState: JSONContent = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: prompts[kind],
+              },
+            ],
+          },
+        ],
+      };
+
+      const modifiers: InputModifiers = {
+        useCodebase: false,
+        noContext: true,
+      };
+
+      void dispatch(
+        streamResponseThunk({
+          editorState,
+          modifiers,
+          visibleContent: labels[kind],
+          source: sources[kind],
+        }),
+      );
+    },
+    [dispatch, frozenSelection],
+  );
+
   const renderChatHistoryItem = useCallback(
     (item: ChatHistoryItemWithMessageId, index: number) => {
       if (isInHiddenOverviewThread(index)) {
@@ -433,6 +526,11 @@ export function Chat() {
         latestSummaryIndex !== -1 && index < latestSummaryIndex;
 
       if (message.role === "user") {
+        const metadata = message.metadata as { source?: string } | undefined;
+        if (metadata?.source?.startsWith("explain-")) {
+          return null;
+        }
+
         return (
           <ContinueInputBox
             onEnter={(editorState, modifiers) =>
@@ -453,8 +551,27 @@ export function Chat() {
       }
 
       if (message.role === "assistant") {
+        const explainSource = getNearestUserSource(index);
+        const explainLabel = explainSource
+          ? EXPLAIN_SOURCE_LABELS[explainSource]
+          : undefined;
+
         return (
           <>
+            {explainLabel && (
+              <div className="mb-1 flex items-center justify-between px-4 pt-2 text-sm font-semibold text-white/85">
+                <span>{explainLabel}</span>
+                <button
+                  onClick={() => {
+                    insertCommentAboveSelection(renderChatMessage(message));
+                  }}
+                  className="group flex items-center gap-2 rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+                >
+                  <span className="text-base font-bold">+</span>
+                  <span>Inline Comment</span>
+                </button>
+              </div>
+            )}
             {/* Always render assistant content through normal path */}
             <div className="thread-message">
               <TimelineItem
@@ -477,6 +594,34 @@ export function Chat() {
                 />
               </TimelineItem>
             </div>
+
+            {explainLabel && (
+              <div className="mb-2 mt-1 flex items-center justify-between px-4">
+                <span className="text-sm font-medium text-white/80">
+                  Explain more about
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => triggerExplain("api")}
+                    className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+                  >
+                    API
+                  </button>
+                  <button
+                    onClick={() => triggerExplain("concept")}
+                    className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+                  >
+                    Concept
+                  </button>
+                  <button
+                    onClick={() => triggerExplain("usage")}
+                    className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+                  >
+                    Usage
+                  </button>
+                </div>
+              </div>
+            )}
 
             {toolCallStates && (
               <ToolCallDiv
@@ -531,6 +676,9 @@ export function Chat() {
       stepsOpen,
       isStreaming,
       isInHiddenOverviewThread,
+      getNearestUserSource,
+      insertCommentAboveSelection,
+      triggerExplain,
     ],
   );
 
@@ -541,105 +689,34 @@ export function Chat() {
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
 
-      {launchStarted && frozenSelection && (
-        <>
-          <div className="sticky top-0 z-30 px-2 pb-2">
-            <SelectionContextDisplay selection={frozenSelection} />
-          </div>
-          <div className="px-2 pb-2">
-            <AIOverviewStyle1
-              content={overviewContent}
-              isGenerating={isGeneratingAIOverview}
-              onInsertComment={() => {
-                if (!overviewContent || !frozenSelection?.filepath) return;
-                const line = frozenSelection.range?.start?.line ?? 1;
-                const comment = formatComment(
-                  typeof overviewContent === "string" ? overviewContent : "",
-                  frozenSelection.filepath,
-                );
-                ideMessenger.post("insertCommentAbove", {
-                  filepath: frozenSelection.filepath,
-                  line,
-                  comment,
-                });
-                setCommentInserted(true);
-              }}
-              commentInserted={commentInserted}
-              onExplainAPI={() => {
-                if (!frozenSelection?.content) return;
-                const editorState: JSONContent = {
-                  type: "doc",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: `Explain the API of this code:\n\n${frozenSelection.content}`,
-                        },
-                      ],
-                    },
-                  ],
-                };
-                const modifiers: InputModifiers = {
-                  useCodebase: false,
-                  noContext: true,
-                };
-                void dispatch(streamResponseThunk({ editorState, modifiers }));
-              }}
-              onExplainConcept={() => {
-                if (!frozenSelection?.content) return;
-                const editorState: JSONContent = {
-                  type: "doc",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: `Explain the concept behind this code:\n\n${frozenSelection.content}`,
-                        },
-                      ],
-                    },
-                  ],
-                };
-                const modifiers: InputModifiers = {
-                  useCodebase: false,
-                  noContext: true,
-                };
-                void dispatch(streamResponseThunk({ editorState, modifiers }));
-              }}
-              onExplainUsage={() => {
-                if (!frozenSelection?.content) return;
-                const editorState: JSONContent = {
-                  type: "doc",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: `Explain how to use this code:\n\n${frozenSelection.content}`,
-                        },
-                      ],
-                    },
-                  ],
-                };
-                const modifiers: InputModifiers = {
-                  useCodebase: false,
-                  noContext: true,
-                };
-                void dispatch(streamResponseThunk({ editorState, modifiers }));
-              }}
-            />
-          </div>
-        </>
-      )}
-
       <StepsDiv
         ref={stepsDivRef}
         className={`overflow-y-scroll pt-[8px] ${showScrollbar ? "thin-scrollbar" : "no-scrollbar"} ${history.length > 0 || launchStarted ? "flex-1" : ""}`}
       >
+        {launchStarted && frozenSelection && (
+          <>
+            <div className="px-2 pb-2">
+              <SelectionContextDisplay selection={frozenSelection} />
+            </div>
+            <div className="px-2 pb-2">
+              <AIOverviewStyle1
+                content={overviewContent}
+                isGenerating={isGeneratingAIOverview}
+                onInsertComment={() => {
+                  if (!overviewContent) return;
+                  insertCommentAboveSelection(
+                    typeof overviewContent === "string" ? overviewContent : "",
+                  );
+                  setCommentInserted(true);
+                }}
+                commentInserted={commentInserted}
+                onExplainAPI={() => triggerExplain("api")}
+                onExplainConcept={() => triggerExplain("concept")}
+                onExplainUsage={() => triggerExplain("usage")}
+              />
+            </div>
+          </>
+        )}
         {highlights}
         {history
           .filter((item) => item.message.role !== "system")
