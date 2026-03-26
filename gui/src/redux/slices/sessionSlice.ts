@@ -224,6 +224,7 @@ type SessionState = {
   contextPercentage?: number;
   inlineErrorMessage?: InlineErrorMessageType;
   compactionLoading: Record<number, boolean>; // Track compaction loading by message index
+  isGeneratingAIOverview?: boolean;
 };
 
 export const INITIAL_SESSION_STATE: SessionState = {
@@ -244,6 +245,7 @@ export const INITIAL_SESSION_STATE: SessionState = {
   lastSessionId: undefined,
   newestToolbarPreviewForInput: {},
   compactionLoading: {},
+  isGeneratingAIOverview: false,
 };
 
 export const sessionSlice = createSlice({
@@ -1004,6 +1006,9 @@ export const sessionSlice = createSlice({
     setContextPercentage: (state, action: PayloadAction<number>) => {
       state.contextPercentage = action.payload;
     },
+    setIsGeneratingAIOverview: (state, action: PayloadAction<boolean>) => {
+      state.isGeneratingAIOverview = action.payload;
+    },
   },
   selectors: {
     selectIsGatheringContext: (state) => {
@@ -1093,6 +1098,7 @@ export const {
   setIsPruned,
   setContextPercentage,
   setCompactionLoading,
+  setIsGeneratingAIOverview,
 } = sessionSlice.actions;
 
 export const { selectIsGatheringContext } = sessionSlice.selectors;

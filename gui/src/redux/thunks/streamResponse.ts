@@ -21,11 +21,15 @@ export const streamResponseThunk = createAsyncThunk<
     editorState: JSONContent;
     modifiers: InputModifiers;
     index?: number;
+    hiddenUserMessage?: boolean;
   },
   ThunkApiType
 >(
   "chat/streamResponse",
-  async ({ editorState, modifiers, index }, { dispatch, extra, getState }) => {
+  async (
+    { editorState, modifiers, index, hiddenUserMessage },
+    { dispatch, extra, getState },
+  ) => {
     await dispatch(
       streamThunkWrapper(async () => {
         const state = getState();
@@ -77,6 +81,12 @@ export const streamResponseThunk = createAsyncThunk<
                 role: "user",
                 content,
                 id: uuidv4(),
+                metadata: hiddenUserMessage
+                  ? {
+                      hiddenInChat: true,
+                      source: "overview",
+                    }
+                  : undefined,
               },
               contextItems: selectedContextItems,
             },

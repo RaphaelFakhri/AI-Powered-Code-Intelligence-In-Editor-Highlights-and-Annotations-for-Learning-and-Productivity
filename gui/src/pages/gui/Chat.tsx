@@ -42,6 +42,7 @@ import {
   updateToolCallOutput,
 } from "../../redux/slices/sessionSlice";
 import { streamEditThunk } from "../../redux/thunks/edit";
+import { generateAIOverviewThunk } from "../../redux/thunks/generateAIOverview";
 import { loadLastSession } from "../../redux/thunks/session";
 import { streamResponseThunk } from "../../redux/thunks/streamResponse";
 import { isJetBrains, isMetaEquivalentKeyPressed } from "../../util";
@@ -120,6 +121,7 @@ export function Chat() {
   const isStreaming = useAppSelector((state) => state.session.isStreaming);
   const [stepsOpen] = useState<(boolean | undefined)[]>([]);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const hasTriggeredOverviewRef = useRef(false);
   const mainTextInputRef = useRef<HTMLInputElement>(null);
   const stepsDivRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -138,12 +140,69 @@ export function Chat() {
     (state) => state.ui.hasDismissedExploreDialog,
   );
   const mode = useAppSelector((state) => state.session.mode);
+  const isGeneratingAIOverview = useAppSelector(
+    (state) => state.session.isGeneratingAIOverview,
+  );
   const currentOrg = useAppSelector(selectCurrentOrg);
   const jetbrains = useMemo(() => {
     return isJetBrains();
   }, []);
 
   useAutoScroll(stepsDivRef, history);
+
+  const overviewContent = useMemo(() => {
+    let overviewUserIndex = -1;
+
+    for (let i = history.length - 1; i >= 0; i--) {
+      const current = history[i].message;
+      const metadata = current.metadata as { source?: string } | undefined;
+      if (current.role === "user" && metadata?.source === "overview") {
+        overviewUserIndex = i;
+        break;
+      }
+    }
+
+    if (overviewUserIndex === -1) {
+      return undefined;
+    }
+
+    let latestAssistantContent: string | undefined;
+
+    for (let i = overviewUserIndex + 1; i < history.length; i++) {
+      const message = history[i].message;
+
+      if (message.role === "user") {
+        break;
+      }
+
+      if (message.role === "assistant") {
+        const text = renderChatMessage(message).trim();
+        if (text.length > 0) {
+          latestAssistantContent = text;
+        }
+      }
+    }
+
+    return latestAssistantContent;
+  }, [history]);
+
+  useEffect(() => {
+    if (!launchStarted) {
+      hasTriggeredOverviewRef.current = false;
+    }
+  }, [launchStarted]);
+
+  useEffect(() => {
+    if (
+      launchStarted &&
+      frozenSelection &&
+      history.length === 0 &&
+      !hasTriggeredOverviewRef.current
+    ) {
+      hasTriggeredOverviewRef.current = true;
+      void dispatch(generateAIOverviewThunk(frozenSelection));
+    }
+  }, [dispatch, launchStarted, frozenSelection, history.length]);
 
   useEffect(() => {
     // Cmd + Backspace to delete current step
@@ -333,8 +392,30 @@ export function Chat() {
     [history],
   );
 
+  const isInHiddenOverviewThread = useCallback(
+    (index: number): boolean => {
+      for (let i = index; i >= 0; i--) {
+        const message = history[i].message;
+        if (message.role === "user") {
+          const metadata = message.metadata as
+            | { source?: string; hiddenInChat?: boolean }
+            | undefined;
+          return (
+            metadata?.source === "overview" && metadata?.hiddenInChat === true
+          );
+        }
+      }
+      return false;
+    },
+    [history],
+  );
+
   const renderChatHistoryItem = useCallback(
     (item: ChatHistoryItemWithMessageId, index: number) => {
+      if (isInHiddenOverviewThread(index)) {
+        return null;
+      }
+
       const {
         message,
         editorState,
@@ -440,7 +521,14 @@ export function Chat() {
         </div>
       );
     },
-    [sendInput, isLastUserInput, history, stepsOpen, isStreaming],
+    [
+      sendInput,
+      isLastUserInput,
+      history,
+      stepsOpen,
+      isStreaming,
+      isInHiddenOverviewThread,
+    ],
   );
 
   const showScrollbar = showChatScrollbar ?? window.innerHeight > 5000;
@@ -456,7 +544,10 @@ export function Chat() {
             <SelectionContextDisplay selection={frozenSelection} />
           </div>
           <div className="px-2 pb-2">
-            <AIOverviewStyle1 />
+            <AIOverviewStyle1
+              content={overviewContent}
+              isGenerating={isGeneratingAIOverview}
+            />
           </div>
         </>
       )}
