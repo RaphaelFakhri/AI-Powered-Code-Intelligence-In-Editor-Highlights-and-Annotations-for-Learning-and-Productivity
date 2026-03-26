@@ -121,6 +121,7 @@ export function Chat() {
   const isStreaming = useAppSelector((state) => state.session.isStreaming);
   const [stepsOpen] = useState<(boolean | undefined)[]>([]);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
+  const [commentInserted, setCommentInserted] = useState(false);
   const hasTriggeredOverviewRef = useRef(false);
   const mainTextInputRef = useRef<HTMLInputElement>(null);
   const stepsDivRef = useRef<HTMLDivElement>(null);
@@ -189,6 +190,7 @@ export function Chat() {
   useEffect(() => {
     if (!launchStarted) {
       hasTriggeredOverviewRef.current = false;
+      setCommentInserted(false);
     }
   }, [launchStarted]);
 
@@ -547,6 +549,8 @@ export function Chat() {
             <AIOverviewStyle1
               content={overviewContent}
               isGenerating={isGeneratingAIOverview}
+              onInsertComment={() => setCommentInserted((prev) => !prev)}
+              commentInserted={commentInserted}
             />
           </div>
         </>
