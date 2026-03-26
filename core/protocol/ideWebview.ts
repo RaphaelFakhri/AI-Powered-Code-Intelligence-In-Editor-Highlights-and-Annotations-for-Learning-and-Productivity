@@ -26,6 +26,10 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   focusEditor: [undefined, void];
   toggleFullScreen: [{ newWindow?: boolean } | undefined, void];
   insertAtCursor: [{ text: string }, void];
+  insertCommentAbove: [
+    { filepath: string; line: number; comment: string },
+    void,
+  ];
   copyText: [{ text: string }, void];
   "jetbrains/isOSREnabled": [undefined, boolean];
   "jetbrains/onLoad": [

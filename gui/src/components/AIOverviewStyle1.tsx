@@ -25,13 +25,14 @@ function AIOverviewStyle1({
         {showButton && (
           <button
             onClick={onInsertComment}
-            className={`shrink-0 rounded border px-2 py-0.5 text-xs font-medium transition-all duration-200 ${
+            className={`group flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold text-white transition-all ${
               commentInserted
-                ? "cursor-pointer border-white/20 bg-transparent text-white/40 hover:bg-white/5"
-                : "cursor-pointer border-teal-400/60 bg-teal-600/80 text-white shadow-[0_0_12px_rgba(20,184,166,0.5)] hover:border-teal-400 hover:bg-teal-600"
+                ? "border-[rgba(62,106,225,0.6)] bg-[rgba(62,106,225,0.6)] hover:bg-[rgba(62,106,225,0.8)]"
+                : "border-[rgb(62,106,225)] bg-[rgb(62,106,225)] hover:bg-[rgb(62,106,225,0.85)]"
             }`}
           >
-            {commentInserted ? "○ Inline Comments" : "● Inline Comments"}
+            <span className="text-base font-bold">+</span>
+            <span>Inline Comment</span>
           </button>
         )}
       </div>

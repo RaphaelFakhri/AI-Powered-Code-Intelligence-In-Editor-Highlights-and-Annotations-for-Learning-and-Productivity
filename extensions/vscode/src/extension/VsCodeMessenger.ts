@@ -202,6 +202,26 @@ export class VsCodeMessenger {
         );
       });
     });
+
+    this.onWebview(
+      "insertCommentAbove",
+      async ({ data: { filepath, line, comment } }) => {
+        await this.ide.openFile(filepath);
+
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showErrorMessage("No active editor to insert comment");
+          return;
+        }
+
+        const lineIndex = Math.max(0, line - 1);
+        const insertPosition = new vscode.Position(lineIndex, 0);
+
+        await editor.edit((editBuilder) => {
+          editBuilder.insert(insertPosition, `${comment}\n`);
+        });
+      },
+    );
     this.onWebview("edit/addCurrentSelection", async (msg) => {
       const verticalDiffManager = await this.verticalDiffManagerPromise;
       await addCurrentSelectionToEdit({

@@ -19,6 +19,7 @@ import { Button, lightGray, vscBackground } from "../../components";
 import SelectionContextDisplay from "../../components/SelectionContextDisplay";
 import AIOverviewStyle1 from "../../components/AIOverviewStyle1";
 import { useSelection } from "../../context/SelectionContext";
+import { formatComment } from "../../utils/commentUtils";
 import { useFindWidget } from "../../components/find/FindWidget";
 import TimelineItem from "../../components/gui/TimelineItem";
 import { NewSessionButton } from "../../components/mainInput/belowMainInput/NewSessionButton";
@@ -549,7 +550,20 @@ export function Chat() {
             <AIOverviewStyle1
               content={overviewContent}
               isGenerating={isGeneratingAIOverview}
-              onInsertComment={() => setCommentInserted((prev) => !prev)}
+              onInsertComment={() => {
+                if (!overviewContent || !frozenSelection?.filepath) return;
+                const line = frozenSelection.range?.start?.line ?? 1;
+                const comment = formatComment(
+                  typeof overviewContent === "string" ? overviewContent : "",
+                  frozenSelection.filepath,
+                );
+                ideMessenger.post("insertCommentAbove", {
+                  filepath: frozenSelection.filepath,
+                  line,
+                  comment,
+                });
+                setCommentInserted(true);
+              }}
               commentInserted={commentInserted}
             />
           </div>
