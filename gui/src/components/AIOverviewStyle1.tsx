@@ -5,6 +5,9 @@ interface AIOverviewStyle1Props {
   isGenerating?: boolean;
   onInsertComment?: () => void;
   commentInserted?: boolean;
+  onExplainAPI?: () => void;
+  onExplainConcept?: () => void;
+  onExplainUsage?: () => void;
 }
 
 function AIOverviewStyle1({
@@ -12,6 +15,9 @@ function AIOverviewStyle1({
   isGenerating,
   onInsertComment,
   commentInserted,
+  onExplainAPI,
+  onExplainConcept,
+  onExplainUsage,
 }: AIOverviewStyle1Props) {
   const displayText = typeof content === "string" ? content : "";
   const showButton = !isGenerating && !!content;
@@ -50,6 +56,40 @@ function AIOverviewStyle1({
           code, including methodology analysis, key patterns, and implementation
           insights.
         </p>
+      )}
+
+      {showButton && (
+        <div className="mt-4 flex items-center justify-between">
+          <span className="text-sm font-medium text-white/80">
+            Explain more about
+          </span>
+          <div className="flex items-center gap-2">
+            {onExplainAPI && (
+              <button
+                onClick={onExplainAPI}
+                className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+              >
+                API
+              </button>
+            )}
+            {onExplainConcept && (
+              <button
+                onClick={onExplainConcept}
+                className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+              >
+                Concept
+              </button>
+            )}
+            {onExplainUsage && (
+              <button
+                onClick={onExplainUsage}
+                className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
+              >
+                Usage
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

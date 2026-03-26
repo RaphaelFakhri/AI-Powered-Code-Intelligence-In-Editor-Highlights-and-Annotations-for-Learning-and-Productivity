@@ -565,6 +565,72 @@ export function Chat() {
                 setCommentInserted(true);
               }}
               commentInserted={commentInserted}
+              onExplainAPI={() => {
+                if (!frozenSelection?.content) return;
+                const editorState: JSONContent = {
+                  type: "doc",
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        {
+                          type: "text",
+                          text: `Explain the API of this code:\n\n${frozenSelection.content}`,
+                        },
+                      ],
+                    },
+                  ],
+                };
+                const modifiers: InputModifiers = {
+                  useCodebase: false,
+                  noContext: true,
+                };
+                void dispatch(streamResponseThunk({ editorState, modifiers }));
+              }}
+              onExplainConcept={() => {
+                if (!frozenSelection?.content) return;
+                const editorState: JSONContent = {
+                  type: "doc",
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        {
+                          type: "text",
+                          text: `Explain the concept behind this code:\n\n${frozenSelection.content}`,
+                        },
+                      ],
+                    },
+                  ],
+                };
+                const modifiers: InputModifiers = {
+                  useCodebase: false,
+                  noContext: true,
+                };
+                void dispatch(streamResponseThunk({ editorState, modifiers }));
+              }}
+              onExplainUsage={() => {
+                if (!frozenSelection?.content) return;
+                const editorState: JSONContent = {
+                  type: "doc",
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        {
+                          type: "text",
+                          text: `Explain how to use this code:\n\n${frozenSelection.content}`,
+                        },
+                      ],
+                    },
+                  ],
+                };
+                const modifiers: InputModifiers = {
+                  useCodebase: false,
+                  noContext: true,
+                };
+                void dispatch(streamResponseThunk({ editorState, modifiers }));
+              }}
             />
           </div>
         </>
