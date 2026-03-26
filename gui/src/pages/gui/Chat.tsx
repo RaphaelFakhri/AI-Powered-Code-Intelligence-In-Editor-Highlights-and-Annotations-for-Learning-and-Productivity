@@ -462,12 +462,6 @@ export function Chat() {
         usage: `Explain how to use this code:\n\n${frozenSelection.content}`,
       };
 
-      const labels: Record<typeof kind, string> = {
-        api: "API ->",
-        concept: "Concept ->",
-        usage: "Usage ->",
-      };
-
       const sources: Record<typeof kind, string> = {
         api: "explain-api",
         concept: "explain-concept",
@@ -498,7 +492,6 @@ export function Chat() {
         streamResponseThunk({
           editorState,
           modifiers,
-          visibleContent: labels[kind],
           source: sources[kind],
         }),
       );
