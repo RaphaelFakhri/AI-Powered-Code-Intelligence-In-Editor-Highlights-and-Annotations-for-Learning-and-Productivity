@@ -1,5 +1,7 @@
 import {
   AtSymbolIcon,
+  EyeIcon,
+  EyeSlashIcon,
   LightBulbIcon as LightBulbIconOutline,
   MicrophoneIcon,
   PhotoIcon,
@@ -179,6 +181,7 @@ function InputToolbar(props: InputToolbarProps) {
   const ideMessenger = useContext(IdeMessengerContext);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [isGazeMode, setIsGazeMode] = useState(false);
   const defaultModel = useAppSelector(selectSelectedChatModel);
   const useActiveFile = useAppSelector(selectUseActiveFile);
   const isInEdit = useAppSelector((store) => store.session.isInEdit);
@@ -333,6 +336,10 @@ function InputToolbar(props: InputToolbarProps) {
     await ideMessenger.post("voiceSelectionStart", undefined);
   };
 
+  const handleGazeModeToggle = () => {
+    setIsGazeMode((prev) => !prev);
+  };
+
   return (
     <>
       <div
@@ -394,20 +401,38 @@ function InputToolbar(props: InputToolbarProps) {
                 </HoverItem>
               </ToolTip>
             )}
-            <ToolTip
-              place="top"
-              content={
-                isVoiceListening ? "Stop voice selection" : "Voice select lines"
-              }
-            >
-              <HoverItem onClick={() => void handleVoiceSelectionClick()}>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void handleVoiceSelectionClick()}
+                className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
+                  isVoiceListening
+                    ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                    : "bg-vsc-input-background text-vsc-foreground border-[var(--vscode-editorWidget-border)]"
+                }`}
+              >
                 {isVoiceListening ? (
-                  <StopIcon className="h-3 w-3 text-red-400 hover:brightness-125" />
+                  <StopIcon className="h-4 w-4" />
                 ) : (
-                  <MicrophoneIcon className="h-3 w-3 hover:brightness-125" />
+                  <MicrophoneIcon className="h-4 w-4" />
                 )}
-              </HoverItem>
-            </ToolTip>
+                {isVoiceListening ? "Stop" : "Voice"}
+              </button>
+              <button
+                onClick={handleGazeModeToggle}
+                className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
+                  isGazeMode
+                    ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                    : "bg-vsc-input-background text-vsc-foreground border-[var(--vscode-editorWidget-border)]"
+                }`}
+              >
+                {isGazeMode ? (
+                  <EyeIcon className="h-4 w-4" />
+                ) : (
+                  <EyeSlashIcon className="h-4 w-4" />
+                )}
+                Gaze
+              </button>
+            </div>
             {supportsReasoning && (
               <HoverItem
                 onClick={() => {
@@ -448,39 +473,7 @@ function InputToolbar(props: InputToolbarProps) {
           }}
         >
           {!isInEdit && <ContextStatus />}
-          {!props.toolbarOptions?.hideUseCodebase && !isInEdit && (
-            <div className="hidden transition-colors duration-200 hover:underline md:flex">
-              <HoverItem
-                className={
-                  props.activeKey === "Meta" ||
-                  props.activeKey === "Control" ||
-                  props.activeKey === "Alt"
-                    ? "underline"
-                    : ""
-                }
-                onClick={(e) =>
-                  props.onEnter?.({
-                    useCodebase: false,
-                    noContext: !useActiveFile,
-                  })
-                }
-              >
-                <ToolTip
-                  place="top-end"
-                  content={`${
-                    useActiveFile
-                      ? "Send Without Active File"
-                      : "Send With Active File"
-                  } (${getMetaKeyLabel()}⏎)`}
-                >
-                  <span>
-                    {getMetaKeyLabel()}⏎{" "}
-                    {useActiveFile ? "No active file" : "Active file"}
-                  </span>
-                </ToolTip>
-              </HoverItem>
-            </div>
-          )}
+
           {isInEdit && (
             <HoverItem
               className="hidden hover:underline sm:flex"
