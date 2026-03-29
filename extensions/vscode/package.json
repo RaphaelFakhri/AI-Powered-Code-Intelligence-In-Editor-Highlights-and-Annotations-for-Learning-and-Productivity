@@ -606,7 +606,7 @@
       "activitybar": [
         {
           "id": "continue",
-          "title": "Continue",
+          "title": "AI Powered Code Intelligence In Editor Highlights and Annotations for Learning and Productivity",
           "icon": "media/sidebar-icon.png"
         }
       ],
@@ -623,7 +623,7 @@
         {
           "type": "webview",
           "id": "continue.continueGUIView",
-          "name": "Continue",
+          "name": "AI Powered Code Intelligence In Editor Highlights and Annotations for Learning and Productivity",
           "icon": "media/sidebar-icon.png",
           "visibility": "visible"
         }
