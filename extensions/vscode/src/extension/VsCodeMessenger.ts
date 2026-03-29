@@ -20,6 +20,9 @@ import {
   sanitizeShellArgument,
   validateGitHubRepoUrl,
 } from "core/util/sanitization";
+import * as childProcess from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { ApplyManager } from "../apply";
@@ -47,6 +50,10 @@ type ToIdeOrWebviewFromCoreProtocol = ToIdeFromCoreProtocol &
  * so we don't have to rewrite some of the handlers
  */
 export class VsCodeMessenger {
+  private voiceSelectionProcess: childProcess.ChildProcessWithoutNullStreams | null =
+    null;
+  private voiceOutputBuffer = "";
+
   onWebview<T extends keyof FromWebviewProtocol>(
     messageType: T,
     handler: (
@@ -123,12 +130,32 @@ export class VsCodeMessenger {
       vscode.commands.executeCommand("continue.openInNewWindow");
     });
 
+    this.onWebview("voiceSelectionStart", async () => {
+      console.log(
+        "[Voice] onWebview 'voiceSelectionStart' received from webview",
+      );
+      await this.startVoiceSelection();
+    });
+
+    this.onWebview("voiceSelectionStop", async () => {
+      console.log(
+        "[Voice] onWebview 'voiceSelectionStop' received from webview",
+      );
+      this.stopVoiceSelection();
+    });
+
     this.onWebview("acceptDiff", async ({ data: { filepath, streamId } }) => {
       await vscode.commands.executeCommand(
         "continue.acceptDiff",
         filepath,
         streamId,
       );
+    });
+
+    this.context.subscriptions.push({
+      dispose: () => {
+        this.stopVoiceSelection();
+      },
     });
 
     this.onWebview("rejectDiff", async ({ data: { filepath, streamId } }) => {
@@ -851,6 +878,410 @@ export class VsCodeMessenger {
 
     this.onWebviewOrCore("reportError", async (msg) => {
       await handleLLMError(msg.data);
+    });
+  }
+
+  private relayVoiceTranscriptLine(line: string) {
+    const trimmed = line.trim();
+    console.log(
+      "[Voice] relayVoiceTranscriptLine raw line:",
+      JSON.stringify(line),
+    );
+    if (!trimmed) {
+      console.log("[Voice] relayVoiceTranscriptLine: empty line, skipping");
+      return;
+    }
+
+    if (trimmed.startsWith("DG_FINAL:")) {
+      const transcript = trimmed.slice("DG_FINAL:".length).trim();
+      console.log(
+        "[Voice] DG_FINAL detected, transcript:",
+        JSON.stringify(transcript),
+      );
+      if (transcript) {
+        console.log(
+          "[Voice] Sending voiceSelectionTranscript (DG_FINAL) to webview",
+        );
+        this.webviewProtocol.send("voiceSelectionTranscript", {
+          transcript,
+          isFinal: true,
+        });
+      } else {
+        console.log("[Voice] DG_FINAL transcript was empty, not sending");
+      }
+      return;
+    }
+
+    if (trimmed.startsWith(">>>")) {
+      const transcript = trimmed.replace(/^>>>\s*/, "").trim();
+      console.log(
+        "[Voice] >>> prefix detected, transcript:",
+        JSON.stringify(transcript),
+      );
+      if (transcript) {
+        console.log(
+          "[Voice] Sending voiceSelectionTranscript (>>>) to webview",
+        );
+        this.webviewProtocol.send("voiceSelectionTranscript", {
+          transcript,
+          isFinal: true,
+        });
+      } else {
+        console.log("[Voice] >>> transcript was empty, not sending");
+      }
+      return;
+    }
+
+    console.log(
+      "[Voice] Line did not match DG_FINAL: or >>> prefix, ignored:",
+      JSON.stringify(trimmed),
+    );
+  }
+
+  private async execFileStdout(
+    command: string,
+    args: string[],
+  ): Promise<string | null> {
+    console.log("[Voice] execFileStdout:", command, args);
+    return await new Promise<string | null>((resolve) => {
+      childProcess.execFile(command, args, (error, stdout, stderr) => {
+        if (error) {
+          console.log(
+            "[Voice] execFileStdout ERROR:",
+            command,
+            args,
+            "error:",
+            error.message,
+          );
+          if (stderr) {
+            console.log("[Voice] execFileStdout stderr:", stderr);
+          }
+          resolve(null);
+          return;
+        }
+        const result = stdout.trim();
+        console.log(
+          "[Voice] execFileStdout result:",
+          JSON.stringify(result || null),
+        );
+        resolve(result || null);
+      });
+    });
+  }
+
+  private resolveVoiceScriptPosixPath(): string | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+    console.log(
+      "[Voice] resolveVoiceScriptPosixPath: workspaceFolders count:",
+      workspaceFolders.length,
+    );
+    const candidatePaths: string[] = [];
+
+    for (const folder of workspaceFolders) {
+      console.log(
+        "[Voice] resolveVoiceScriptPosixPath: scanning folder:",
+        folder.uri.fsPath,
+      );
+      let currentDir = folder.uri.fsPath;
+      for (let depth = 0; depth < 6; depth++) {
+        candidatePaths.push(path.join(currentDir, "tmp", "transcribe.js"));
+        const parent = path.dirname(currentDir);
+        if (parent === currentDir) {
+          break;
+        }
+        currentDir = parent;
+      }
+    }
+
+    console.log(
+      "[Voice] resolveVoiceScriptPosixPath: candidate paths:",
+      candidatePaths,
+    );
+    for (const candidate of candidatePaths) {
+      const exists = fs.existsSync(candidate);
+      console.log("[Voice]   ", candidate, "exists:", exists);
+    }
+
+    const scriptPosixPath = candidatePaths.find((candidate) =>
+      fs.existsSync(candidate),
+    );
+    console.log(
+      "[Voice] resolveVoiceScriptPosixPath result:",
+      scriptPosixPath ?? "null (not found)",
+    );
+    return scriptPosixPath ?? null;
+  }
+
+  private async resolveWindowsProfilePosixPath(): Promise<string | null> {
+    console.log(
+      "[Voice] resolveWindowsProfilePosixPath: getting USERPROFILE...",
+    );
+    const profileWindowsPath = await this.execFileStdout("cmd.exe", [
+      "/d",
+      "/c",
+      "echo %USERPROFILE%",
+    ]);
+    console.log(
+      "[Voice] resolveWindowsProfilePosixPath: USERPROFILE =",
+      JSON.stringify(profileWindowsPath),
+    );
+    if (!profileWindowsPath) {
+      console.log(
+        "[Voice] resolveWindowsProfilePosixPath: USERPROFILE was null, aborting",
+      );
+      return null;
+    }
+
+    const posixPath = await this.execFileStdout("wslpath", [
+      "-u",
+      profileWindowsPath,
+    ]);
+    console.log(
+      "[Voice] resolveWindowsProfilePosixPath: posix path =",
+      JSON.stringify(posixPath),
+    );
+    return posixPath;
+  }
+
+  private async stageVoiceScriptInWindowsDir(): Promise<string | null> {
+    console.log("[Voice] stageVoiceScriptInWindowsDir: starting...");
+    const sourceScriptPath = this.resolveVoiceScriptPosixPath();
+    if (!sourceScriptPath) {
+      console.log(
+        "[Voice] stageVoiceScriptInWindowsDir: sourceScriptPath is null, aborting",
+      );
+      return null;
+    }
+
+    const sourceDir = path.dirname(sourceScriptPath);
+    const sourceConfigPath = path.join(sourceDir, "config.yaml");
+    const sourcePackagePath = path.join(sourceDir, "package.json");
+    console.log("[Voice] stageVoiceScriptInWindowsDir: sourceDir:", sourceDir);
+    console.log("[Voice]   config exists:", fs.existsSync(sourceConfigPath));
+    console.log(
+      "[Voice]   package.json exists:",
+      fs.existsSync(sourcePackagePath),
+    );
+
+    const profilePosixPath = await this.resolveWindowsProfilePosixPath();
+    if (!profilePosixPath) {
+      console.log(
+        "[Voice] stageVoiceScriptInWindowsDir: profilePosixPath is null, aborting",
+      );
+      return null;
+    }
+
+    const targetPosixDir = path.join(profilePosixPath, ".continue-voice");
+    console.log(
+      "[Voice] stageVoiceScriptInWindowsDir: targetPosixDir:",
+      targetPosixDir,
+    );
+    fs.mkdirSync(targetPosixDir, { recursive: true });
+    console.log("[Voice] stageVoiceScriptInWindowsDir: copying transcribe.js");
+    fs.copyFileSync(
+      sourceScriptPath,
+      path.join(targetPosixDir, "transcribe.js"),
+    );
+    if (fs.existsSync(sourcePackagePath)) {
+      console.log("[Voice] stageVoiceScriptInWindowsDir: copying package.json");
+      fs.copyFileSync(
+        sourcePackagePath,
+        path.join(targetPosixDir, "package.json"),
+      );
+    }
+    if (fs.existsSync(sourceConfigPath)) {
+      console.log("[Voice] stageVoiceScriptInWindowsDir: copying config.yaml");
+      fs.copyFileSync(
+        sourceConfigPath,
+        path.join(targetPosixDir, "config.yaml"),
+      );
+    }
+
+    const windowsDir = await this.execFileStdout("wslpath", [
+      "-w",
+      targetPosixDir,
+    ]);
+    console.log(
+      "[Voice] stageVoiceScriptInWindowsDir: windowsDir result:",
+      JSON.stringify(windowsDir),
+    );
+    return windowsDir;
+  }
+
+  private async ensureVoiceRuntimeDependencies(
+    windowsScriptDir: string,
+  ): Promise<boolean> {
+    console.log(
+      "[Voice] ensureVoiceRuntimeDependencies: windowsScriptDir:",
+      windowsScriptDir,
+    );
+    const profilePosixPath = await this.resolveWindowsProfilePosixPath();
+    if (!profilePosixPath) {
+      console.log(
+        "[Voice] ensureVoiceRuntimeDependencies: profilePosixPath is null, returning false",
+      );
+      return false;
+    }
+
+    const wsMarker = path.join(
+      profilePosixPath,
+      ".continue-voice",
+      "node_modules",
+      "ws",
+      "package.json",
+    );
+    console.log(
+      "[Voice] ensureVoiceRuntimeDependencies: wsMarker:",
+      wsMarker,
+      "exists:",
+      fs.existsSync(wsMarker),
+    );
+    if (fs.existsSync(wsMarker)) {
+      console.log(
+        "[Voice] ensureVoiceRuntimeDependencies: ws already installed, skipping npm install",
+      );
+      return true;
+    }
+
+    console.log(
+      "[Voice] ensureVoiceRuntimeDependencies: running npm install in",
+      windowsScriptDir,
+    );
+    await this.execFileStdout("cmd.exe", [
+      "/d",
+      "/c",
+      `cd /d ${windowsScriptDir} && npm install --silent --no-audit --no-fund`,
+    ]);
+
+    const installed = fs.existsSync(wsMarker);
+    console.log(
+      "[Voice] ensureVoiceRuntimeDependencies: after npm install, wsMarker exists:",
+      installed,
+    );
+    return installed;
+  }
+
+  private async startVoiceSelection() {
+    console.log("[Voice] startVoiceSelection: called");
+    if (this.voiceSelectionProcess) {
+      console.log(
+        "[Voice] startVoiceSelection: process already running, ignoring",
+      );
+      return;
+    }
+
+    const windowsScriptDir = await this.stageVoiceScriptInWindowsDir();
+    if (!windowsScriptDir) {
+      console.log(
+        "[Voice] startVoiceSelection: stageVoiceScriptInWindowsDir returned null, sending error",
+      );
+      this.webviewProtocol.send("voiceSelectionStatus", {
+        state: "error",
+        message: "Unable to prepare voice transcription script.",
+      });
+      return;
+    }
+
+    const depsOk = await this.ensureVoiceRuntimeDependencies(windowsScriptDir);
+    if (!depsOk) {
+      console.log(
+        "[Voice] startVoiceSelection: ensureVoiceRuntimeDependencies returned false, sending error",
+      );
+      this.webviewProtocol.send("voiceSelectionStatus", {
+        state: "error",
+        message: "Unable to install voice transcription dependencies (ws).",
+      });
+      return;
+    }
+
+    this.voiceOutputBuffer = "";
+    const launchCommand = `cd /d ${windowsScriptDir} && node transcribe.js`;
+    console.log(
+      "[Voice] startVoiceSelection: spawning cmd.exe with:",
+      launchCommand,
+    );
+    this.voiceSelectionProcess = childProcess.spawn("cmd.exe", [
+      "/d",
+      "/c",
+      launchCommand,
+    ]);
+    console.log(
+      "[Voice] startVoiceSelection: process spawned, pid:",
+      this.voiceSelectionProcess.pid,
+    );
+
+    console.log(
+      "[Voice] startVoiceSelection: sending 'listening' status to webview",
+    );
+    this.webviewProtocol.send("voiceSelectionStatus", {
+      state: "listening",
+    });
+
+    this.voiceSelectionProcess.stdout.on("data", (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      console.log("[Voice] stdout chunk:", JSON.stringify(text));
+      this.voiceOutputBuffer += text;
+      const lines = this.voiceOutputBuffer.split(/\r?\n|\r/);
+      this.voiceOutputBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        this.relayVoiceTranscriptLine(line);
+      }
+      if (this.voiceOutputBuffer.length > 0) {
+        console.log(
+          "[Voice] stdout buffer remaining (no newline yet):",
+          JSON.stringify(this.voiceOutputBuffer),
+        );
+      }
+    });
+
+    this.voiceSelectionProcess.stderr.on("data", (chunk: Buffer) => {
+      const message = chunk.toString("utf8").trim();
+      console.log("[Voice] stderr chunk:", JSON.stringify(message));
+      if (!message) {
+        return;
+      }
+      this.webviewProtocol.send("voiceSelectionStatus", {
+        state: "error",
+        message,
+      });
+    });
+
+    this.voiceSelectionProcess.on("error", (error) => {
+      console.log("[Voice] process 'error' event:", error.message);
+      this.webviewProtocol.send("voiceSelectionStatus", {
+        state: "error",
+        message: `Voice process failed to start (${windowsScriptDir}): ${error.message}`,
+      });
+    });
+
+    this.voiceSelectionProcess.on("close", (code, signal) => {
+      console.log(
+        "[Voice] process 'close' event: code:",
+        code,
+        "signal:",
+        signal,
+      );
+      this.stopVoiceSelection();
+    });
+  }
+
+  private stopVoiceSelection() {
+    console.log(
+      "[Voice] stopVoiceSelection: called, process exists:",
+      !!this.voiceSelectionProcess,
+    );
+    if (this.voiceSelectionProcess) {
+      console.log(
+        "[Voice] stopVoiceSelection: killing process pid:",
+        this.voiceSelectionProcess.pid,
+      );
+      this.voiceSelectionProcess.kill();
+      this.voiceSelectionProcess = null;
+    }
+    this.voiceOutputBuffer = "";
+    console.log("[Voice] stopVoiceSelection: sending 'idle' status to webview");
+    this.webviewProtocol.send("voiceSelectionStatus", {
+      state: "idle",
     });
   }
 }

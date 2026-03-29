@@ -88,6 +88,8 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
     },
     void,
   ];
+  voiceSelectionStart: [undefined, void];
+  voiceSelectionStop: [undefined, void];
 };
 
 export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
@@ -130,4 +132,9 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
   focusEdit: [undefined, void];
   generateRule: [undefined, void];
   addToChat: [AddToChatPayload, void];
+  voiceSelectionTranscript: [{ transcript: string; isFinal: boolean }, void];
+  voiceSelectionStatus: [
+    { state: "idle" | "listening" | "error"; message?: string },
+    void,
+  ];
 };
