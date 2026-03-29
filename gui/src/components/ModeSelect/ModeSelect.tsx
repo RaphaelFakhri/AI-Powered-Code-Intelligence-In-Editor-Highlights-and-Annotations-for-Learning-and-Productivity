@@ -111,13 +111,13 @@ export function ModeSelect() {
         >
           <ModeIcon mode={mode} />
           <span className="hidden sm:block">
-            {mode === "chat"
-              ? "Chat"
-              : mode === "agent"
-                ? "Agent"
-                : mode === "background"
-                  ? "Background"
-                  : "Plan"}
+            {mode === "agent"
+              ? "Agent"
+              : mode === "background"
+                ? "Background"
+                : mode === "plan"
+                  ? "Plan"
+                  : ""}
           </span>
           <ChevronDownIcon
             className="h-2 w-2 flex-shrink-0"

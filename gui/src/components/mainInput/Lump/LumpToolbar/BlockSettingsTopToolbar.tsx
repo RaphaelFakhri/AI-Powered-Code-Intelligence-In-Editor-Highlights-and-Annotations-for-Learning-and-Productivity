@@ -1,19 +1,12 @@
-import {
-  CubeIcon,
-  ExclamationTriangleIcon,
-  GiftIcon,
-  PencilIcon,
-  WrenchScrewdriverIcon,
-} from "@heroicons/react/24/outline";
+import { ExclamationTriangleIcon, GiftIcon } from "@heroicons/react/24/outline";
 import { useContext, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { IdeMessengerContext } from "../../../../context/IdeMessenger";
-import { useAppDispatch, useAppSelector } from "../../../../redux/hooks";
+import { useAppSelector } from "../../../../redux/hooks";
 import {
   selectPendingToolCalls,
   selectToolCallsByStatus,
 } from "../../../../redux/selectors/selectToolCalls";
-import { setSelectedProfile } from "../../../../redux/slices/profilesSlice";
 import StarterCreditsPopover from "../../../StarterCreditsPopover";
 import { ToolTip } from "../../../gui/Tooltip";
 import HoverItem from "../../InputToolbar/HoverItem";
@@ -21,12 +14,11 @@ import HoverItem from "../../InputToolbar/HoverItem";
 import { useAuth } from "../../../../context/Auth";
 import { useCreditStatus } from "../../../../hooks/useCredits";
 import { CONFIG_ROUTES } from "../../../../util/navigation";
-import { AssistantAndOrgListbox } from "../../../AssistantAndOrgListbox";
+
 import { useSelection } from "../../../../context/SelectionContext";
 
 export function BlockSettingsTopToolbar() {
   const navigate = useNavigate();
-  const dispatch = useAppDispatch();
   const { selectedProfile } = useAuth();
   const { selection, setSelection, launchStarted, startLaunch } =
     useSelection();
@@ -81,36 +73,6 @@ export function BlockSettingsTopToolbar() {
 
   const { creditStatus, isUsingFreeTrial, refreshCreditStatus } =
     useCreditStatus();
-
-  const handleRulesClick = () => {
-    if (selectedProfile) {
-      dispatch(setSelectedProfile(selectedProfile.id));
-      ideMessenger.post("didChangeSelectedProfile", {
-        id: selectedProfile.id,
-      });
-    }
-    navigate(CONFIG_ROUTES.RULES);
-  };
-
-  const handleToolsClick = () => {
-    if (selectedProfile) {
-      dispatch(setSelectedProfile(selectedProfile.id));
-      ideMessenger.post("didChangeSelectedProfile", {
-        id: selectedProfile.id,
-      });
-    }
-    navigate(CONFIG_ROUTES.TOOLS);
-  };
-
-  const handleModelsClick = () => {
-    if (selectedProfile) {
-      dispatch(setSelectedProfile(selectedProfile.id));
-      ideMessenger.post("didChangeSelectedProfile", {
-        id: selectedProfile.id,
-      });
-    }
-    navigate(CONFIG_ROUTES.MODELS);
-  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -183,33 +145,9 @@ export function BlockSettingsTopToolbar() {
                   </StarterCreditsPopover>
                 </ToolTip>
               )}
-
-              <ToolTip content="Configure rules">
-                <HoverItem onClick={handleRulesClick} px={2}>
-                  <PencilIcon className="text-description-muted h-3 w-3 hover:brightness-125" />
-                </HoverItem>
-              </ToolTip>
-
-              <ToolTip content="Configure tools">
-                <HoverItem onClick={handleToolsClick} px={2}>
-                  <WrenchScrewdriverIcon className="text-description-muted h-3 w-3 hover:brightness-125" />
-                </HoverItem>
-              </ToolTip>
-
-              <ToolTip content="Configure models">
-                <HoverItem onClick={handleModelsClick} px={2}>
-                  <CubeIcon className="text-description-muted h-3 w-3 hover:brightness-125" />
-                </HoverItem>
-              </ToolTip>
             </div>
           )}
         </div>
-
-        <ToolTip place="top" content="Select Config">
-          <div>
-            <AssistantAndOrgListbox variant="lump" />
-          </div>
-        </ToolTip>
       </div>
     </div>
   );

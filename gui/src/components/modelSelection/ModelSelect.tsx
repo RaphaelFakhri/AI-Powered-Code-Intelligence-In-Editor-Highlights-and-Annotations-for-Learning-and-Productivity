@@ -251,9 +251,7 @@ function ModelSelect() {
           ref={buttonRef}
           className="text-description h-[18px] gap-1 border-none"
         >
-          <span className="line-clamp-1 break-all hover:brightness-110">
-            {modelSelectTitle(selectedModel) || "Select model"}
-          </span>
+          <span className="hover:brightness-110">Mod</span>
           <ChevronDownIcon
             className="hidden h-2 w-2 flex-shrink-0 hover:brightness-110 min-[200px]:flex"
             aria-hidden="true"

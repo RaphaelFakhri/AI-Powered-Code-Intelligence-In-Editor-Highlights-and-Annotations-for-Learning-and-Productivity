@@ -7,6 +7,7 @@ import {
   PhotoIcon,
   StopIcon,
 } from "@heroicons/react/24/outline";
+import { AssistantAndOrgListbox } from "../AssistantAndOrgListbox";
 import { LightBulbIcon as LightBulbIconSolid } from "@heroicons/react/24/solid";
 import { InputModifiers } from "core";
 import {
@@ -401,36 +402,78 @@ function InputToolbar(props: InputToolbarProps) {
                 </HoverItem>
               </ToolTip>
             )}
-            <div className="flex items-center gap-2">
+            <div className="ml-1" />
+            <ToolTip place="top" content="Select Config">
+              <HoverItem className="!p-0">
+                <AssistantAndOrgListbox variant="lump" />
+              </HoverItem>
+            </ToolTip>
+            <div className="ml-5 flex items-center gap-3">
               <button
                 onClick={() => void handleVoiceSelectionClick()}
-                className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
-                  isVoiceListening
-                    ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
-                    : "bg-vsc-input-background text-vsc-foreground border-[var(--vscode-editorWidget-border)]"
+                aria-pressed={isVoiceListening}
+                className={`flex items-center gap-2 rounded-full px-3 py-1.5 transition-all ${
+                  isVoiceListening ? "bg-blue-500/20" : "bg-transparent"
                 }`}
               >
                 {isVoiceListening ? (
-                  <StopIcon className="h-4 w-4" />
+                  <StopIcon className="h-4 w-4 text-blue-400" />
                 ) : (
-                  <MicrophoneIcon className="h-4 w-4" />
+                  <MicrophoneIcon className="text-vsc-foreground h-4 w-4" />
                 )}
-                {isVoiceListening ? "Stop" : "Voice"}
+                <span
+                  className={`text-xs font-bold ${isVoiceListening ? "text-blue-400" : "text-vsc-foreground"}`}
+                >
+                  Voice
+                </span>
+                <div
+                  className={`relative h-5 w-8 items-center rounded-full border transition-all ${
+                    isVoiceListening
+                      ? "border-blue-500/50 bg-blue-500/30"
+                      : "bg-vsc-input-background border-[var(--vscode-editorWidget-border)]"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 h-4 w-4 rounded-full border transition-all ${
+                      isVoiceListening
+                        ? "left-4 border-blue-500 bg-blue-400"
+                        : "bg-vsc-foreground left-0 border-[var(--vscode-editorWidget-border)]"
+                    }`}
+                  />
+                </div>
               </button>
               <button
                 onClick={handleGazeModeToggle}
-                className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
-                  isGazeMode
-                    ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
-                    : "bg-vsc-input-background text-vsc-foreground border-[var(--vscode-editorWidget-border)]"
+                aria-pressed={isGazeMode}
+                className={`flex items-center gap-2 rounded-full px-3 py-1.5 transition-all ${
+                  isGazeMode ? "bg-blue-500/20" : "bg-transparent"
                 }`}
               >
                 {isGazeMode ? (
-                  <EyeIcon className="h-4 w-4" />
+                  <EyeIcon className="h-4 w-4 text-blue-400" />
                 ) : (
-                  <EyeSlashIcon className="h-4 w-4" />
+                  <EyeSlashIcon className="text-vsc-foreground h-4 w-4" />
                 )}
-                Gaze
+                <span
+                  className={`text-xs font-bold ${isGazeMode ? "text-blue-400" : "text-vsc-foreground"}`}
+                >
+                  Gaze
+                </span>
+                <div
+                  className={`relative h-5 w-8 items-center rounded-full border transition-all ${
+                    isGazeMode
+                      ? "border-blue-500/50 bg-blue-500/30"
+                      : "bg-vsc-input-background border-[var(--vscode-editorWidget-border)]"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 h-4 w-4 rounded-full border transition-all ${
+                      isGazeMode
+                        ? "left-4 border-blue-500 bg-blue-400"
+                        : "bg-vsc-foreground left-0 border-[var(--vscode-editorWidget-border)]"
+                    }`}
+                  />
+                </div>
               </button>
             </div>
             {supportsReasoning && (
