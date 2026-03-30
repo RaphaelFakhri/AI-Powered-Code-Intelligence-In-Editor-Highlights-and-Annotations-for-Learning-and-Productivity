@@ -178,3 +178,6 @@ keys
 .copy-status
 .copy-log
 
+# Voice transcription secrets
+tmp/config.yaml
+

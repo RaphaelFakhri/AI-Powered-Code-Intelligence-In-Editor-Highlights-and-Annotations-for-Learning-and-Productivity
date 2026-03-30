@@ -30,11 +30,15 @@ function readApiKeyFromConfig() {
   }
 }
 
-// Deepgram API key priority: env -> tmp/config.yaml -> fallback
-const DEEPGRAM_API_KEY =
-  process.env.DEEPGRAM_API_KEY ||
-  readApiKeyFromConfig() ||
-  "96c97d0bae96a64df53f9e53e03343370a095d44";
+// Deepgram API key priority: env -> tmp/config.yaml
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || readApiKeyFromConfig();
+
+if (!DEEPGRAM_API_KEY) {
+  console.error(
+    "No Deepgram API key found. Set DEEPGRAM_API_KEY env var or add deepgramApiKey to config.yaml",
+  );
+  process.exit(1);
+}
 
 // Deepgram endpoint - nova-2 is fast and accurate for general English
 const DEEPGRAM_URL =
