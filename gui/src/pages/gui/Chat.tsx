@@ -25,6 +25,7 @@ import TimelineItem from "../../components/gui/TimelineItem";
 import { NewSessionButton } from "../../components/mainInput/belowMainInput/NewSessionButton";
 import ThinkingBlockPeek from "../../components/mainInput/belowMainInput/ThinkingBlockPeek";
 import ContinueInputBox from "../../components/mainInput/ContinueInputBox";
+import { voiceAudioContext } from "../../components/mainInput/InputToolbar";
 import { useOnboardingCard } from "../../components/OnboardingCard";
 import StepContainer from "../../components/StepContainer";
 import { TabBar } from "../../components/TabBar/TabBar";
@@ -464,9 +465,9 @@ export function Chat() {
       if (!frozenSelection?.content) return;
 
       const prompts: Record<typeof kind, string> = {
-        api: `Explain the API of this code:\n\n${frozenSelection.content}`,
-        concept: `Explain the concept behind this code:\n\n${frozenSelection.content}`,
-        usage: `Explain how to use this code:\n\n${frozenSelection.content}`,
+        api: `Briefly describe the public interface of this code — what methods or functions are available, what they accept, and what they return. Keep it short and spoken-style, 3 to 5 sentences. No code snippets, no markdown.\n\n${frozenSelection.content}`,
+        concept: `In plain language, explain the key idea or pattern behind this code. Help me understand the "why", not the "how". 2 to 4 sentences, spoken-style. No code snippets, no markdown.\n\n${frozenSelection.content}`,
+        usage: `Show me briefly how to use this code in practice. Give one simple example in plain words, then one short code snippet. Keep the explanation to 2 to 3 sentences.\n\n${frozenSelection.content}`,
       };
 
       const sources: Record<typeof kind, string> = {
@@ -749,6 +750,148 @@ export function Chat() {
     insertCommentAboveSelection,
     history,
   ]);
+
+  // Voice TTS: uses global AudioContext unlocked by mic button click in InputToolbar
+  const voiceTriggeredRef = useRef(false);
+  const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const wasStreamingRef = useRef(false);
+
+  // Mark voice-triggered actions
+  useEffect(() => {
+    const markVoice = (event: MessageEvent) => {
+      if (event.data?.messageType === "voiceIntent") {
+        const action = event.data.data?.action;
+        if (
+          [
+            "overview",
+            "explain_api",
+            "explain_concept",
+            "explain_usage",
+            "custom_prompt",
+          ].includes(action)
+        ) {
+          voiceTriggeredRef.current = true;
+          console.log("[Voice:TTS] Marked next response as voice-triggered");
+        }
+      }
+    };
+    window.addEventListener("message", markVoice);
+    return () => window.removeEventListener("message", markVoice);
+  }, []);
+
+  // When streaming/overview finishes and it was voice-triggered, speak the response
+  const wasGeneratingOverviewRef = useRef(false);
+  useEffect(() => {
+    const justFinishedStreaming = wasStreamingRef.current && !isStreaming;
+    const justFinishedOverview =
+      wasGeneratingOverviewRef.current && !isGeneratingAIOverview;
+    wasStreamingRef.current = isStreaming;
+    wasGeneratingOverviewRef.current = isGeneratingAIOverview;
+
+    if (
+      (justFinishedStreaming || justFinishedOverview) &&
+      voiceTriggeredRef.current
+    ) {
+      voiceTriggeredRef.current = false;
+      let latestText = "";
+      if (justFinishedOverview && overviewContent) {
+        latestText = overviewContent;
+      } else {
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i].message.role === "assistant") {
+            latestText = renderChatMessage(history[i].message).trim();
+            if (latestText) break;
+          }
+        }
+      }
+      if (latestText) {
+        console.log(
+          "[Voice:TTS] Response finished, requesting TTS for",
+          latestText.length,
+          "chars",
+        );
+        void ideMessenger.post("voiceTtsSpeak", { text: latestText });
+      }
+    }
+  }, [
+    isStreaming,
+    isGeneratingAIOverview,
+    history,
+    ideMessenger,
+    overviewContent,
+  ]);
+
+  // Stop any current TTS playback
+  const stopTtsPlayback = useCallback(() => {
+    if (ttsSourceRef.current) {
+      try {
+        ttsSourceRef.current.stop();
+      } catch {}
+      ttsSourceRef.current = null;
+      console.log("[Voice:TTS] Playback stopped");
+    }
+  }, []);
+
+  // Play TTS audio via AudioContext when received, handle user interrupt
+  useEffect(() => {
+    const handleTtsAudio = async (event: MessageEvent) => {
+      if (event.data?.messageType === "voiceTtsAudio") {
+        const { audioBase64 } = event.data.data as {
+          audioBase64: string;
+          mimeType: string;
+        };
+        console.log("[Voice:TTS] Received audio, decoding...");
+
+        if (!voiceAudioContext || voiceAudioContext.state === "closed") {
+          console.log(
+            "[Voice:TTS] No AudioContext available (mic not clicked yet?)",
+          );
+          return;
+        }
+        if (voiceAudioContext.state === "suspended") {
+          void voiceAudioContext.resume();
+        }
+        const ctx = voiceAudioContext;
+        stopTtsPlayback();
+
+        try {
+          const binaryStr = atob(audioBase64);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          ttsSourceRef.current = source;
+          source.onended = () => {
+            console.log("[Voice:TTS] Playback finished");
+            ttsSourceRef.current = null;
+          };
+          source.start();
+          console.log(
+            "[Voice:TTS] Playing audio, duration:",
+            audioBuffer.duration.toFixed(1),
+            "s",
+          );
+        } catch (err: any) {
+          console.log("[Voice:TTS] Decode/play error:", err.message);
+        }
+      }
+
+      // User started speaking — interrupt TTS playback
+      if (
+        event.data?.messageType === "voiceSelectionTranscript" ||
+        event.data?.messageType === "voiceIntent"
+      ) {
+        stopTtsPlayback();
+      }
+    };
+
+    window.addEventListener("message", handleTtsAudio);
+    return () => window.removeEventListener("message", handleTtsAudio);
+  }, [stopTtsPlayback]);
 
   const renderChatHistoryItem = useCallback(
     (item: ChatHistoryItemWithMessageId, index: number) => {

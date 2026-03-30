@@ -144,6 +144,19 @@ export class VsCodeMessenger {
       this.stopVoiceSelection();
     });
 
+    this.onWebview("voiceTtsSpeak", async ({ data }) => {
+      console.log(
+        "[Voice] onWebview 'voiceTtsSpeak', text length:",
+        data.text.length,
+      );
+      await this.speakTts(data.text);
+    });
+
+    this.onWebview("voiceTtsStop", async () => {
+      console.log("[Voice] onWebview 'voiceTtsStop'");
+      // Nothing to stop server-side; playback is stopped in webview
+    });
+
     this.onWebview("acceptDiff", async ({ data: { filepath, streamId } }) => {
       await vscode.commands.executeCommand(
         "continue.acceptDiff",
@@ -1040,11 +1053,19 @@ Return ONLY valid JSON.`;
         return;
       }
 
-      // Parse JSON - strip markdown fences if present
-      const jsonStr = content
-        .replace(/^```(?:json)?\s*/, "")
-        .replace(/\s*```$/, "");
-      const intent = JSON.parse(jsonStr);
+      // Extract JSON object from response — model may wrap it in reasoning text
+      const jsonMatch = content.match(
+        /\{[^{}]*"action"\s*:\s*"[^"]+?"[^{}]*\}/,
+      );
+      if (!jsonMatch) {
+        console.log("[Voice] Could not find JSON object in LLM response");
+        this.webviewProtocol.send("voiceIntent", {
+          action: "unknown",
+          transcript,
+        });
+        return;
+      }
+      const intent = JSON.parse(jsonMatch[0]);
       console.log("[Voice] Parsed intent:", JSON.stringify(intent));
 
       this.webviewProtocol.send("voiceIntent", {
@@ -1409,5 +1430,83 @@ Return ONLY valid JSON.`;
     this.webviewProtocol.send("voiceSelectionStatus", {
       state: "idle",
     });
+  }
+
+  private async speakTts(text: string) {
+    const config = this.readVoiceConfig();
+    const apiKey = config.deepgramApiKey;
+    if (!apiKey) {
+      console.log("[Voice:TTS] No deepgramApiKey in config, skipping TTS");
+      return;
+    }
+
+    // Strip markdown for cleaner speech
+    const clean = text
+      .replace(/```[\s\S]*?```/g, " code snippet omitted ")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/#{1,6}\s*/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[-*]\s+/g, "")
+      .replace(/\n{2,}/g, ". ")
+      .replace(/\n/g, " ")
+      .trim();
+
+    if (!clean) {
+      console.log("[Voice:TTS] Nothing to speak after cleanup");
+      return;
+    }
+
+    // Deepgram TTS has a 2000 char limit; truncate if needed
+    const truncated =
+      clean.length > 1900 ? clean.slice(0, 1900) + "..." : clean;
+    const model = config.deepgramTtsModel || "aura-2-thalia-en";
+
+    console.log(
+      "[Voice:TTS] Calling Deepgram TTS, model:",
+      model,
+      "text length:",
+      truncated.length,
+    );
+
+    try {
+      const response = await fetch(
+        `https://api.deepgram.com/v1/speak?model=${encodeURIComponent(model)}&encoding=mp3`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: truncated }),
+        },
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.log(
+          "[Voice:TTS] Deepgram TTS error:",
+          response.status,
+          errText,
+        );
+        return;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString("base64");
+      console.log(
+        "[Voice:TTS] Got audio, size:",
+        arrayBuffer.byteLength,
+        "bytes, sending to webview",
+      );
+
+      this.webviewProtocol.send("voiceTtsAudio", {
+        audioBase64: base64,
+        mimeType: "audio/mpeg",
+      });
+    } catch (err: any) {
+      console.log("[Voice:TTS] Error:", err.message);
+    }
   }
 }

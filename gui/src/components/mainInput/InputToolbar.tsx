@@ -25,6 +25,19 @@ import { setHasReasoningEnabled } from "../../redux/slices/sessionSlice";
 import { setReasoningSetting } from "../../redux/slices/uiSlice";
 import { exitEdit } from "../../redux/thunks/edit";
 // Voice intents are now classified by LLM on the backend and handled in Chat.tsx
+
+// Global AudioContext for TTS playback — must be created/resumed during user gesture
+export let voiceAudioContext: AudioContext | null = null;
+function ensureVoiceAudioContext() {
+  if (!voiceAudioContext) {
+    voiceAudioContext = new AudioContext();
+    console.log("[Voice:TTS] AudioContext created from user gesture");
+  }
+  if (voiceAudioContext.state === "suspended") {
+    void voiceAudioContext.resume();
+    console.log("[Voice:TTS] AudioContext resumed from user gesture");
+  }
+}
 import { getMetaKeyLabel, isMetaEquivalentKeyPressed } from "../../util";
 import { ToolTip } from "../gui/Tooltip";
 import ModelSelect from "../modelSelection/ModelSelect";
@@ -133,6 +146,8 @@ function InputToolbar(props: InputToolbarProps) {
       "[Voice:GUI] handleVoiceSelectionClick: isVoiceListening =",
       isVoiceListening,
     );
+    // Unlock AudioContext on user gesture so TTS can play later
+    ensureVoiceAudioContext();
     if (isVoiceListening) {
       cleanupVoiceSession();
       return;

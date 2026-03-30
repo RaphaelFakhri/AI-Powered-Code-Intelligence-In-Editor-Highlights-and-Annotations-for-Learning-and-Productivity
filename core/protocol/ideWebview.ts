@@ -90,6 +90,8 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   ];
   voiceSelectionStart: [undefined, void];
   voiceSelectionStop: [undefined, void];
+  voiceTtsSpeak: [{ text: string }, void];
+  voiceTtsStop: [undefined, void];
 };
 
 export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
@@ -137,6 +139,7 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
     { state: "idle" | "listening" | "error"; message?: string },
     void,
   ];
+  voiceTtsAudio: [{ audioBase64: string; mimeType: string }, void];
   voiceIntent: [
     {
       action:

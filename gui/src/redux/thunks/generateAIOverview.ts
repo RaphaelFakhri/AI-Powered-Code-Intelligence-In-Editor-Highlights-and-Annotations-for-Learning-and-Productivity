@@ -31,7 +31,7 @@ export const generateAIOverviewThunk = createAsyncThunk<
         content: [
           {
             type: "text",
-            text: `Give overview of this code:\n\n${selection.content}`,
+            text: `Give a brief, spoken-style overview of what this code does. Be concise — 2 to 4 short sentences max. Focus on purpose and structure, not implementation details. No code snippets, no bullet points, no markdown.\n\n${selection.content}`,
           },
         ],
       },
