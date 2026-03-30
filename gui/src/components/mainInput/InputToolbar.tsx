@@ -24,130 +24,7 @@ import { selectSelectedChatModel } from "../../redux/slices/configSlice";
 import { setHasReasoningEnabled } from "../../redux/slices/sessionSlice";
 import { setReasoningSetting } from "../../redux/slices/uiSlice";
 import { exitEdit } from "../../redux/thunks/edit";
-// Voice parser inlined to avoid stale Vite cache
-const _WORD_TO_NUM: Record<string, number> = {
-  zero: 0,
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-  eleven: 11,
-  twelve: 12,
-  thirteen: 13,
-  fourteen: 14,
-  fifteen: 15,
-  sixteen: 16,
-  seventeen: 17,
-  eighteen: 18,
-  nineteen: 19,
-  twenty: 20,
-  thirty: 30,
-  forty: 40,
-  fifty: 50,
-  sixty: 60,
-  seventy: 70,
-  eighty: 80,
-  ninety: 90,
-  hundred: 100,
-};
-function _parseNum(value: string): number | null {
-  const t = value.trim().toLowerCase().replace(/-/g, " ");
-  if (/^\d+$/.test(t)) {
-    const n = parseInt(t, 10);
-    return n >= 0 ? n : null;
-  }
-  const tokens = t.split(/\s+/);
-  let current = 0;
-  let matched = false;
-  for (const tok of tokens) {
-    if (tok === "and" || tok === "a") continue;
-    const v = _WORD_TO_NUM[tok];
-    if (v === undefined) {
-      if (matched) break;
-      return null;
-    }
-    matched = true;
-    if (v === 100) {
-      current = (current === 0 ? 1 : current) * 100;
-    } else {
-      current += v;
-    }
-  }
-  return matched && current > 0 ? current : null;
-}
-function parseSelectLinesIntent(
-  transcript: string,
-): { startLine: number; endLine: number } | null {
-  const text = transcript
-    .trim()
-    .toLowerCase()
-    .replace(/[.,!?]+/g, "");
-  console.log(
-    "[Voice:Parser] input:",
-    JSON.stringify(transcript),
-    "normalized:",
-    JSON.stringify(text),
-  );
-  if (!text) return null;
-  const NUM = `(\\d+(?:\\s+\\d+)*|[a-z]+(?:[\\s-]+[a-z]+)*)`;
-  const patterns: [RegExp, boolean][] = [
-    [
-      new RegExp(
-        `(?:select|highlight)\\s+lines?\\s+${NUM}\\s*(?:to|through|-)\\s*${NUM}`,
-      ),
-      true,
-    ],
-    [new RegExp(`lines?\\s+${NUM}\\s*(?:to|through|-)\\s*${NUM}`), true],
-    [new RegExp(`${NUM}\\s+(?:to|through)\\s+${NUM}`), true],
-    [new RegExp(`(?:select|highlight)\\s+lines?\\s+${NUM}`), false],
-    [new RegExp(`lines?\\s+${NUM}`), false],
-  ];
-  for (const [pat, isRange] of patterns) {
-    const m = text.match(pat);
-    console.log(
-      "[Voice:Parser] pattern:",
-      pat.source,
-      "match:",
-      JSON.stringify(m),
-    );
-    if (!m) continue;
-    if (isRange && m[1] !== undefined && m[2] !== undefined) {
-      const s = _parseNum(m[1]),
-        e = _parseNum(m[2]);
-      console.log(
-        "[Voice:Parser] range:",
-        s,
-        "-",
-        e,
-        "from",
-        JSON.stringify(m[1]),
-        JSON.stringify(m[2]),
-      );
-      if (s && e && s >= 1 && e >= 1) {
-        const result = { startLine: Math.min(s, e), endLine: Math.max(s, e) };
-        console.log("[Voice:Parser] returning:", JSON.stringify(result));
-        return result;
-      }
-    }
-    if (!isRange && m[1] !== undefined) {
-      const n = _parseNum(m[1]);
-      console.log("[Voice:Parser] single:", n, "from", JSON.stringify(m[1]));
-      if (n && n >= 1) {
-        const result = { startLine: n, endLine: n };
-        console.log("[Voice:Parser] returning:", JSON.stringify(result));
-        return result;
-      }
-    }
-  }
-  console.log("[Voice:Parser] no pattern matched");
-  return null;
-}
+// Voice intents are now classified by LLM on the backend and handled in Chat.tsx
 import { getMetaKeyLabel, isMetaEquivalentKeyPressed } from "../../util";
 import { ToolTip } from "../gui/Tooltip";
 import ModelSelect from "../modelSelection/ModelSelect";
@@ -214,8 +91,8 @@ function InputToolbar(props: InputToolbarProps) {
   };
 
   useEffect(() => {
-    console.log("[Voice:GUI] useEffect: registering window message listener");
-    const listener = async (event: {
+    console.log("[Voice:GUI] useEffect: registering voice status listener");
+    const listener = (event: {
       data: Message<ToWebviewProtocol[keyof ToWebviewProtocol][0]>;
     }) => {
       if (event.data.messageType === "voiceSelectionStatus") {
@@ -229,98 +106,25 @@ function InputToolbar(props: InputToolbarProps) {
           setIsVoiceListening(true);
           void ideMessenger.ide.showToast(
             "info",
-            "Voice listening started. Say: select lines 7 to 11.",
+            "Voice listening... speak a command.",
           );
         } else if (payload.state === "idle") {
           setIsVoiceListening(false);
         } else if (payload.state === "error") {
           setIsVoiceListening(false);
-          console.log("[Voice:GUI] voice error:", payload.message);
           if (payload.message) {
             void ideMessenger.ide.showToast("error", payload.message);
           }
         }
       }
-
-      if (event.data.messageType === "voiceSelectionTranscript") {
-        const payload = event.data
-          .data as ToWebviewProtocol["voiceSelectionTranscript"][0];
-        console.log(
-          "[Voice:GUI] received voiceSelectionTranscript:",
-          JSON.stringify(payload),
-        );
-        if (!payload.isFinal || !payload.transcript.trim()) {
-          console.log("[Voice:GUI] transcript not final or empty, ignoring");
-          return;
-        }
-
-        const intent = parseSelectLinesIntent(payload.transcript);
-        console.log(
-          "[Voice:GUI] parseSelectLinesIntent result:",
-          JSON.stringify(intent),
-          "from transcript:",
-          JSON.stringify(payload.transcript),
-        );
-        if (!intent) {
-          console.log("[Voice:GUI] no intent parsed, ignoring transcript");
-          return;
-        }
-
-        const currentFile = await ideMessenger.ide.getCurrentFile();
-        console.log(
-          "[Voice:GUI] currentFile:",
-          currentFile?.path ?? "null",
-          "contents length:",
-          currentFile?.contents?.length ?? 0,
-        );
-        if (!currentFile?.path) {
-          void ideMessenger.ide.showToast(
-            "warning",
-            "No active file found to apply voice selection.",
-          );
-          return;
-        }
-
-        const lineCount = currentFile.contents
-          ? currentFile.contents.split(/\r?\n/).length
-          : 1;
-        const clampedStart = Math.max(1, Math.min(intent.startLine, lineCount));
-        const clampedEnd = Math.max(
-          clampedStart,
-          Math.min(intent.endLine, lineCount),
-        );
-        console.log(
-          "[Voice:GUI] selecting lines:",
-          clampedStart,
-          "-",
-          clampedEnd,
-          "in",
-          currentFile.path,
-          "(total lines:",
-          lineCount,
-          ")",
-        );
-
-        await ideMessenger.ide.showLines(
-          currentFile.path,
-          clampedStart - 1,
-          clampedEnd - 1,
-        );
-
-        void ideMessenger.ide.showToast(
-          "info",
-          `Selected lines ${clampedStart}-${clampedEnd}`,
-        );
-        cleanupVoiceSession();
-      }
     };
 
     window.addEventListener("message", listener);
-
     return () => {
-      console.log("[Voice:GUI] useEffect cleanup: removing listener");
       window.removeEventListener("message", listener);
-      cleanupVoiceSession();
+      // Do NOT call cleanupVoiceSession here — voice should persist
+      // across UI changes (overview, explain, etc.) and only stop
+      // when the user explicitly clicks the mic button.
     };
   }, [ideMessenger]);
 

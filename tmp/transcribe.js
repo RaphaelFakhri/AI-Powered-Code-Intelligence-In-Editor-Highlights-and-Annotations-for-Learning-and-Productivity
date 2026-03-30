@@ -105,12 +105,8 @@ ws.on("message", (data) => {
     const transcript = result.channel.alternatives[0].transcript;
     const isFinal = result.is_final;
 
-    if (transcript.trim()) {
-      if (isFinal) {
-        console.log("DG_FINAL:" + transcript);
-      } else {
-        process.stdout.write("\r" + transcript + "   ");
-      }
+    if (transcript.trim() && isFinal) {
+      console.log("DG_FINAL:" + transcript);
     }
   }
 });

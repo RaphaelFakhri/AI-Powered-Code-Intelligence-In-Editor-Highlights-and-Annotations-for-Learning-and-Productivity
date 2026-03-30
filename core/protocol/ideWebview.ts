@@ -137,4 +137,24 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
     { state: "idle" | "listening" | "error"; message?: string },
     void,
   ];
+  voiceIntent: [
+    {
+      action:
+        | "select_lines"
+        | "select_function"
+        | "overview"
+        | "explain_api"
+        | "explain_concept"
+        | "explain_usage"
+        | "inline_comment"
+        | "custom_prompt"
+        | "unknown";
+      startLine?: number;
+      endLine?: number;
+      functionName?: string;
+      customPrompt?: string;
+      transcript: string;
+    },
+    void,
+  ];
 };

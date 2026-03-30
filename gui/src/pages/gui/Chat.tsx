@@ -121,7 +121,14 @@ export function Chat() {
   const ideMessenger = useContext(IdeMessengerContext);
   const reduxStore = useStore<RootState>();
   const onboardingCard = useOnboardingCard();
-  const { launchStarted, frozenSelection, resetLaunch } = useSelection();
+  const {
+    launchStarted,
+    frozenSelection,
+    resetLaunch,
+    startLaunch,
+    selection,
+    setSelection,
+  } = useSelection();
   const showSessionTabs = useAppSelector(
     (store) => store.config.config.ui?.showSessionTabs,
   );
@@ -498,6 +505,250 @@ export function Chat() {
     },
     [dispatch, frozenSelection],
   );
+
+  // Voice intent handler — listens for classified voice commands from the backend
+  useEffect(() => {
+    const handleVoiceIntent = async (event: MessageEvent) => {
+      if (event.data?.messageType !== "voiceIntent") return;
+      const intent = event.data.data as {
+        action: string;
+        startLine?: number;
+        endLine?: number;
+        functionName?: string;
+        customPrompt?: string;
+        transcript: string;
+      };
+      console.log("[Voice:Chat] received voiceIntent:", JSON.stringify(intent));
+
+      const currentFile = await ideMessenger.ide.getCurrentFile();
+
+      switch (intent.action) {
+        case "select_lines": {
+          if (!currentFile?.path || !intent.startLine || !intent.endLine) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "No file open or invalid lines.",
+            );
+            break;
+          }
+          const lineCount = currentFile.contents?.split(/\r?\n/).length ?? 1;
+          const s = Math.max(1, Math.min(intent.startLine, lineCount));
+          const e = Math.max(s, Math.min(intent.endLine, lineCount));
+          console.log("[Voice:Chat] selecting lines", s, "-", e);
+          await ideMessenger.ide.showLines(currentFile.path, s - 1, e - 1);
+          void ideMessenger.ide.showToast("info", `Selected lines ${s}-${e}`);
+          break;
+        }
+
+        case "select_function": {
+          if (!currentFile?.path || !intent.functionName) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "No file open or no function name.",
+            );
+            break;
+          }
+          console.log(
+            "[Voice:Chat] looking for function:",
+            intent.functionName,
+          );
+          // Use simple text search to find function boundaries
+          const lines = (currentFile.contents ?? "").split(/\r?\n/);
+          let funcStart = -1;
+          let funcEnd = -1;
+          let braceDepth = 0;
+          const namePattern = new RegExp(
+            `\\b${intent.functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+          );
+          for (let i = 0; i < lines.length; i++) {
+            if (funcStart === -1 && namePattern.test(lines[i])) {
+              funcStart = i;
+            }
+            if (funcStart !== -1) {
+              for (const ch of lines[i]) {
+                if (ch === "{") braceDepth++;
+                if (ch === "}") braceDepth--;
+              }
+              if (braceDepth <= 0 && lines[i].includes("}")) {
+                funcEnd = i;
+                break;
+              }
+            }
+          }
+          if (funcStart !== -1) {
+            if (funcEnd === -1)
+              funcEnd = Math.min(funcStart + 20, lines.length - 1);
+            console.log(
+              "[Voice:Chat] found function at lines",
+              funcStart + 1,
+              "-",
+              funcEnd + 1,
+            );
+            await ideMessenger.ide.showLines(
+              currentFile.path,
+              funcStart,
+              funcEnd,
+            );
+            void ideMessenger.ide.showToast(
+              "info",
+              `Selected ${intent.functionName} (lines ${funcStart + 1}-${funcEnd + 1})`,
+            );
+          } else {
+            void ideMessenger.ide.showToast(
+              "warning",
+              `Function "${intent.functionName}" not found.`,
+            );
+          }
+          break;
+        }
+
+        case "overview": {
+          if (!frozenSelection && !launchStarted) {
+            // If no selection frozen yet, trigger startLaunch which freezes current selection
+            console.log("[Voice:Chat] triggering startLaunch for overview");
+            startLaunch();
+          } else if (frozenSelection && !launchStarted) {
+            console.log(
+              "[Voice:Chat] triggering startLaunch with existing frozen selection",
+            );
+            startLaunch();
+          } else {
+            console.log("[Voice:Chat] overview already started");
+            void ideMessenger.ide.showToast(
+              "info",
+              "Overview already in progress.",
+            );
+          }
+          break;
+        }
+
+        case "explain_api": {
+          if (!frozenSelection?.content || !overviewContent) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "Please get an overview first before asking for API details.",
+            );
+            break;
+          }
+          console.log("[Voice:Chat] triggering explain API");
+          triggerExplain("api");
+          break;
+        }
+
+        case "explain_concept": {
+          if (!frozenSelection?.content || !overviewContent) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "Please get an overview first before asking for concept details.",
+            );
+            break;
+          }
+          console.log("[Voice:Chat] triggering explain concept");
+          triggerExplain("concept");
+          break;
+        }
+
+        case "explain_usage": {
+          if (!frozenSelection?.content || !overviewContent) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "Please get an overview first before asking for usage details.",
+            );
+            break;
+          }
+          console.log("[Voice:Chat] triggering explain usage");
+          triggerExplain("usage");
+          break;
+        }
+
+        case "inline_comment": {
+          // Find the latest assistant message text and insert as inline comment
+          let latestAssistant = "";
+          for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].message.role === "assistant") {
+              latestAssistant = renderChatMessage(history[i].message).trim();
+              if (latestAssistant) break;
+            }
+          }
+          if (!latestAssistant) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "No AI response to insert as comment.",
+            );
+            break;
+          }
+          console.log(
+            "[Voice:Chat] inserting inline comment, length:",
+            latestAssistant.length,
+          );
+          insertCommentAboveSelection(latestAssistant);
+          void ideMessenger.ide.showToast("info", "Inline comment inserted.");
+          break;
+        }
+
+        case "custom_prompt": {
+          if (!frozenSelection?.content || !overviewContent) {
+            void ideMessenger.ide.showToast(
+              "warning",
+              "Please get an overview first before asking custom questions.",
+            );
+            break;
+          }
+          if (!intent.customPrompt) break;
+          console.log(
+            "[Voice:Chat] sending custom prompt:",
+            intent.customPrompt,
+          );
+          const editorState: JSONContent = {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [
+                  {
+                    type: "text",
+                    text: `${intent.customPrompt}\n\nCode:\n${frozenSelection.content}`,
+                  },
+                ],
+              },
+            ],
+          };
+          void dispatch(
+            streamResponseThunk({
+              editorState,
+              modifiers: { useCodebase: false, noContext: true },
+            }),
+          );
+          break;
+        }
+
+        case "unknown":
+        default:
+          console.log(
+            "[Voice:Chat] unknown intent, transcript:",
+            intent.transcript,
+          );
+          void ideMessenger.ide.showToast(
+            "info",
+            `Didn't understand: "${intent.transcript}"`,
+          );
+          break;
+      }
+    };
+
+    window.addEventListener("message", handleVoiceIntent);
+    return () => window.removeEventListener("message", handleVoiceIntent);
+  }, [
+    ideMessenger,
+    dispatch,
+    frozenSelection,
+    launchStarted,
+    overviewContent,
+    triggerExplain,
+    startLaunch,
+    insertCommentAboveSelection,
+    history,
+  ]);
 
   const renderChatHistoryItem = useCallback(
     (item: ChatHistoryItemWithMessageId, index: number) => {

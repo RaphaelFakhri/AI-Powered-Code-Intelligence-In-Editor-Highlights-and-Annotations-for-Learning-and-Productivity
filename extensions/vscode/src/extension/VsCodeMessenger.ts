@@ -892,50 +892,176 @@ export class VsCodeMessenger {
       return;
     }
 
+    let transcript: string | null = null;
+
     if (trimmed.startsWith("DG_FINAL:")) {
-      const transcript = trimmed.slice("DG_FINAL:".length).trim();
+      transcript = trimmed.slice("DG_FINAL:".length).trim();
       console.log(
         "[Voice] DG_FINAL detected, transcript:",
         JSON.stringify(transcript),
       );
-      if (transcript) {
-        console.log(
-          "[Voice] Sending voiceSelectionTranscript (DG_FINAL) to webview",
-        );
-        this.webviewProtocol.send("voiceSelectionTranscript", {
-          transcript,
-          isFinal: true,
-        });
-      } else {
-        console.log("[Voice] DG_FINAL transcript was empty, not sending");
-      }
-      return;
-    }
-
-    if (trimmed.startsWith(">>>")) {
-      const transcript = trimmed.replace(/^>>>\s*/, "").trim();
+    } else if (trimmed.startsWith(">>>")) {
+      transcript = trimmed.replace(/^>>>\s*/, "").trim();
       console.log(
         "[Voice] >>> prefix detected, transcript:",
         JSON.stringify(transcript),
       );
-      if (transcript) {
-        console.log(
-          "[Voice] Sending voiceSelectionTranscript (>>>) to webview",
-        );
-        this.webviewProtocol.send("voiceSelectionTranscript", {
-          transcript,
-          isFinal: true,
-        });
-      } else {
-        console.log("[Voice] >>> transcript was empty, not sending");
-      }
+    } else {
+      console.log(
+        "[Voice] Line did not match DG_FINAL: or >>> prefix, ignored:",
+        JSON.stringify(trimmed),
+      );
       return;
     }
 
+    if (!transcript) {
+      console.log("[Voice] transcript was empty, not sending");
+      return;
+    }
+
+    // Classify via LLM instead of regex
+    void this.classifyAndSendVoiceIntent(transcript);
+  }
+
+  private readVoiceConfig(): Record<string, string> {
+    const scriptPath = this.resolveVoiceScriptPosixPath();
+    if (!scriptPath) return {};
+    try {
+      const configPath = path.join(path.dirname(scriptPath), "config.yaml");
+      const content = fs.readFileSync(configPath, "utf8");
+      const result: Record<string, string> = {};
+      for (const line of content.split("\n")) {
+        const match = line.match(/^\s*(\w+)\s*:\s*['"]?([^'"\n]+)['"]?\s*$/);
+        if (match) result[match[1]] = match[2].trim();
+      }
+      return result;
+    } catch {
+      return {};
+    }
+  }
+
+  private async classifyAndSendVoiceIntent(transcript: string) {
     console.log(
-      "[Voice] Line did not match DG_FINAL: or >>> prefix, ignored:",
-      JSON.stringify(trimmed),
+      "[Voice] classifyAndSendVoiceIntent:",
+      JSON.stringify(transcript),
     );
+
+    const config = this.readVoiceConfig();
+    const apiKey = config.opencodeGoApiKey;
+    const baseUrl =
+      config.opencodeGoBaseUrl || "https://api.opencode-go.com/v1";
+    const model = config.opencodeGoModel || "MiniMax-M2.7";
+
+    if (!apiKey) {
+      console.log(
+        "[Voice] No opencodeGoApiKey in config.yaml, falling back to raw transcript",
+      );
+      this.webviewProtocol.send("voiceIntent", {
+        action: "unknown",
+        transcript,
+      });
+      return;
+    }
+
+    // Get current file contents for context
+    let fileContext = "";
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      const doc = editor.document;
+      const fileName = path.basename(doc.uri.fsPath);
+      fileContext = `\nCurrent file: ${fileName}\n\`\`\`\n${doc.getText()}\n\`\`\``;
+    }
+
+    const systemPrompt = `You are a voice command interpreter for a code editor extension. Parse the user's spoken command and return ONLY a JSON object (no markdown, no backticks).
+
+Available actions:
+1. "select_lines" - User wants to select/highlight specific lines. Return: {"action":"select_lines","startLine":N,"endLine":M}
+2. "select_function" - User wants to select a function/method/class by name. Return: {"action":"select_function","functionName":"exactName"}
+3. "overview" - User wants an AI overview of the selected code (like clicking "Get Started" / "Overview"). Return: {"action":"overview"}
+4. "explain_api" - User wants API explanation of the code. Return: {"action":"explain_api"}
+5. "explain_concept" - User wants concept explanation. Return: {"action":"explain_concept"}
+6. "explain_usage" - User wants usage explanation. Return: {"action":"explain_usage"}
+7. "inline_comment" - User wants to add the latest AI response as an inline comment in the code. Return: {"action":"inline_comment"}
+8. "custom_prompt" - User has a custom question/request about the code. Return: {"action":"custom_prompt","customPrompt":"cleaned up prompt text"}
+9. "unknown" - Cannot understand. Return: {"action":"unknown"}
+
+The user speaks casually with filler words like "um", "like", "please", etc. Ignore those and extract the intent.
+For line numbers spoken as words (e.g. "seven"), convert to digits.
+For function selection, match the function name from the file contents below.
+${fileContext}
+
+Return ONLY valid JSON.`;
+
+    try {
+      console.log("[Voice] Calling LLM at", baseUrl, "model:", model);
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: transcript },
+          ],
+          temperature: 0,
+          max_tokens: 512,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.log("[Voice] LLM API error:", response.status, errText);
+        this.webviewProtocol.send("voiceIntent", {
+          action: "unknown",
+          transcript,
+        });
+        return;
+      }
+
+      const data = await response.json();
+      const msg = data.choices?.[0]?.message;
+      // Handle reasoning models that put output in reasoning field
+      const content = (msg?.content || msg?.reasoning || "").trim();
+      console.log("[Voice] LLM raw response:", JSON.stringify(content));
+      console.log(
+        "[Voice] LLM full message keys:",
+        msg ? Object.keys(msg) : "null",
+      );
+
+      if (!content) {
+        console.log("[Voice] LLM returned empty content");
+        this.webviewProtocol.send("voiceIntent", {
+          action: "unknown",
+          transcript,
+        });
+        return;
+      }
+
+      // Parse JSON - strip markdown fences if present
+      const jsonStr = content
+        .replace(/^```(?:json)?\s*/, "")
+        .replace(/\s*```$/, "");
+      const intent = JSON.parse(jsonStr);
+      console.log("[Voice] Parsed intent:", JSON.stringify(intent));
+
+      this.webviewProtocol.send("voiceIntent", {
+        action: intent.action || "unknown",
+        startLine: intent.startLine,
+        endLine: intent.endLine,
+        functionName: intent.functionName,
+        customPrompt: intent.customPrompt,
+        transcript,
+      });
+    } catch (err: any) {
+      console.log("[Voice] classifyAndSendVoiceIntent error:", err.message);
+      this.webviewProtocol.send("voiceIntent", {
+        action: "unknown",
+        transcript,
+      });
+    }
   }
 
   private async execFileStdout(
