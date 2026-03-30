@@ -157,7 +157,15 @@ function InputToolbar(props: InputToolbarProps) {
   };
 
   const handleGazeModeToggle = () => {
-    setIsGazeMode((prev) => !prev);
+    const newState = !isGazeMode;
+    setIsGazeMode(newState);
+    if (newState) {
+      console.log("[Gaze:GUI] Starting gaze tracking");
+      void ideMessenger.post("gazeStart", undefined);
+    } else {
+      console.log("[Gaze:GUI] Stopping gaze tracking");
+      void ideMessenger.post("gazeStop", undefined);
+    }
   };
 
   return (

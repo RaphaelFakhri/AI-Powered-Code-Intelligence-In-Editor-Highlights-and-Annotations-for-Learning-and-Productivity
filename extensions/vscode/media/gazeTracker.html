@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      margin: 0;
+      background: #1e1e1e;
+      color: #ccc;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px;
+    }
+    #status {
+      margin: 8px 0;
+      text-align: center;
+    }
+    #gazeOverlay {
+      position: fixed;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(62, 106, 225, 0.5);
+      pointer-events: none;
+      z-index: 9999;
+      display: none;
+      transform: translate(-50%, -50%);
+    }
+    #webgazerVideoContainer, #webgazerVideoFeed, #webgazerFaceFeedbackBox, #webgazerFaceOverlay, #webgazerGazeDot {
+      display: none !important;
+    }
+    .calibration-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      padding: 20px;
+      width: 80%;
+      max-width: 400px;
+    }
+    .cal-dot {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #555;
+      cursor: pointer;
+      transition: background 0.2s;
+      justify-self: center;
+    }
+    .cal-dot:hover { background: #3e6ae1; }
+    .cal-dot.clicked { background: #3e6ae1; }
+    .cal-dot.done { background: #2ea043; }
+    #startBtn {
+      margin-top: 12px;
+      padding: 8px 20px;
+      background: #3e6ae1;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    #startBtn:hover { background: #5a82f0; }
+  </style>
+</head>
+<body>
+  <div id="status">Click Start to begin gaze calibration</div>
+  <button id="startBtn">Start Calibration</button>
+  <div class="calibration-grid" id="calGrid" style="display:none;"></div>
+  <div id="gazeOverlay"></div>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+    let webgazerReady = false;
+    let calibrationDone = false;
+    let lingerTimer = null;
+    let lastGazeY = -1;
+    const LINGER_MS = 800;
+    const GAZE_BAND_PX = 60;
+
+    async function loadWebGazer() {
+      document.getElementById("status").textContent = "Loading WebGazer...";
+      // WebGazer is loaded via importScripts or dynamic script
+      const script = document.createElement("script");
+      script.src = "WEBGAZER_URI_PLACEHOLDER";
+      script.onload = () => {
+        document.getElementById("status").textContent = "WebGazer loaded. Click Start.";
+        document.getElementById("startBtn").style.display = "inline-block";
+      };
+      script.onerror = (e) => {
+        document.getElementById("status").textContent = "Failed to load WebGazer: " + e;
+      };
+      document.head.appendChild(script);
+    }
+
+    document.getElementById("startBtn").addEventListener("click", async () => {
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("status").textContent = "Starting camera...";
+
+      try {
+        await webgazer
+          .setGazeListener((data, timestamp) => {
+            if (!data || !calibrationDone) return;
+            onGaze(data.x, data.y);
+          })
+          .begin();
+
+        webgazer.showVideoPreview(false);
+        webgazer.showPredictionPoints(false);
+        webgazer.showFaceOverlay(false);
+        webgazer.showFaceFeedbackBox(false);
+        webgazerReady = true;
+
+        // Show calibration grid
+        showCalibration();
+      } catch (err) {
+        document.getElementById("status").textContent = "Camera error: " + err.message;
+      }
+    });
+
+    function showCalibration() {
+      const grid = document.getElementById("calGrid");
+      grid.style.display = "grid";
+      grid.innerHTML = "";
+      document.getElementById("status").textContent = "Click each dot 5 times to calibrate";
+
+      const clickCounts = {};
+      for (let i = 0; i < 9; i++) {
+        const dot = document.createElement("div");
+        dot.className = "cal-dot";
+        dot.dataset.idx = i;
+        clickCounts[i] = 0;
+        dot.addEventListener("click", (e) => {
+          clickCounts[i]++;
+          dot.classList.add("clicked");
+          if (clickCounts[i] >= 5) {
+            dot.classList.remove("clicked");
+            dot.classList.add("done");
+          }
+          // Check if all done
+          const allDone = Object.values(clickCounts).every((c) => c >= 5);
+          if (allDone) {
+            finishCalibration();
+          }
+        });
+        grid.appendChild(dot);
+      }
+    }
+
+    function finishCalibration() {
+      document.getElementById("calGrid").style.display = "none";
+      document.getElementById("status").textContent = "Gaze tracking active — look at code in the editor";
+      document.getElementById("gazeOverlay").style.display = "block";
+      calibrationDone = true;
+      vscode.postMessage({ type: "gazeReady" });
+    }
+
+    function onGaze(x, y) {
+      // Show gaze dot
+      const overlay = document.getElementById("gazeOverlay");
+      overlay.style.left = x + "px";
+      overlay.style.top = y + "px";
+
+      // Send gaze coords to extension at throttled rate
+      const now = Date.now();
+      if (!onGaze._lastSend || now - onGaze._lastSend > 100) {
+        onGaze._lastSend = now;
+        vscode.postMessage({ type: "gazeCoords", x: Math.round(x), y: Math.round(y) });
+      }
+
+      // Linger detection: if gaze stays in roughly same Y band, trigger selection
+      if (Math.abs(y - lastGazeY) > GAZE_BAND_PX) {
+        // Gaze moved to a different area
+        lastGazeY = y;
+        clearTimeout(lingerTimer);
+        lingerTimer = setTimeout(() => {
+          vscode.postMessage({ type: "gazeLinger", x: Math.round(x), y: Math.round(y) });
+        }, LINGER_MS);
+      }
+    }
+    onGaze._lastSend = 0;
+
+    // Handle messages from extension
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "stop") {
+        if (webgazerReady) {
+          webgazer.end();
+          webgazerReady = false;
+        }
+        calibrationDone = false;
+        document.getElementById("status").textContent = "Gaze tracking stopped.";
+      }
+    });
+
+    loadWebGazer();
+  </script>
+</body>
+</html>

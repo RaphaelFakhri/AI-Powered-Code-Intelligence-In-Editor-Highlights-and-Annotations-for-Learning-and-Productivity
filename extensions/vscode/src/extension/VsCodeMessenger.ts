@@ -53,6 +53,8 @@ export class VsCodeMessenger {
   private voiceSelectionProcess: childProcess.ChildProcessWithoutNullStreams | null =
     null;
   private voiceOutputBuffer = "";
+  private gazePanel: vscode.WebviewPanel | null = null;
+  private gazeLingerDebounce: NodeJS.Timeout | null = null;
 
   onWebview<T extends keyof FromWebviewProtocol>(
     messageType: T,
@@ -154,7 +156,16 @@ export class VsCodeMessenger {
 
     this.onWebview("voiceTtsStop", async () => {
       console.log("[Voice] onWebview 'voiceTtsStop'");
-      // Nothing to stop server-side; playback is stopped in webview
+    });
+
+    this.onWebview("gazeStart", async () => {
+      console.log("[Gaze] onWebview 'gazeStart'");
+      this.openGazePanel();
+    });
+
+    this.onWebview("gazeStop", async () => {
+      console.log("[Gaze] onWebview 'gazeStop'");
+      this.closeGazePanel();
     });
 
     this.onWebview("acceptDiff", async ({ data: { filepath, streamId } }) => {
@@ -1507,6 +1518,235 @@ Return ONLY valid JSON.`;
       });
     } catch (err: any) {
       console.log("[Voice:TTS] Error:", err.message);
+    }
+  }
+
+  // ─── Gaze tracking ───────────────────────────────────────────────
+
+  private openGazePanel() {
+    if (this.gazePanel) {
+      this.gazePanel.reveal();
+      return;
+    }
+
+    const extensionUri = this.context.extensionUri;
+
+    // Find webgazer.js from gui/node_modules
+    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+    let webgazerPath: string | null = null;
+    for (const folder of workspaceFolders) {
+      let dir = folder.uri.fsPath;
+      for (let d = 0; d < 6; d++) {
+        const candidate = path.join(
+          dir,
+          "gui",
+          "node_modules",
+          "webgazer",
+          "dist",
+          "webgazer.js",
+        );
+        if (fs.existsSync(candidate)) {
+          webgazerPath = candidate;
+          break;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+      if (webgazerPath) break;
+    }
+
+    this.gazePanel = vscode.window.createWebviewPanel(
+      "gazeTracker",
+      "Gaze Tracker",
+      vscode.ViewColumn.Two,
+      {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(extensionUri, "media"),
+          ...(webgazerPath
+            ? [vscode.Uri.file(path.dirname(webgazerPath))]
+            : []),
+        ],
+      },
+    );
+
+    // Read HTML template and inject webgazer URI
+    const htmlPath = path.join(
+      extensionUri.fsPath,
+      "media",
+      "gazeTracker.html",
+    );
+    let html = fs.readFileSync(htmlPath, "utf8");
+
+    if (webgazerPath) {
+      const webgazerUri = this.gazePanel.webview.asWebviewUri(
+        vscode.Uri.file(webgazerPath),
+      );
+      html = html.replace("WEBGAZER_URI_PLACEHOLDER", webgazerUri.toString());
+    }
+
+    this.gazePanel.webview.html = html;
+    console.log("[Gaze] Panel opened");
+
+    this.gazePanel.webview.onDidReceiveMessage((msg) => {
+      if (msg.type === "gazeReady") {
+        console.log("[Gaze] Calibration complete, tracking active");
+      } else if (msg.type === "gazeLinger") {
+        this.handleGazeLinger(msg.x, msg.y);
+      } else if (msg.type === "gazeCoords") {
+        // Optional: could use for real-time gaze indicator
+      }
+    });
+
+    this.gazePanel.onDidDispose(() => {
+      console.log("[Gaze] Panel disposed");
+      this.gazePanel = null;
+    });
+  }
+
+  private closeGazePanel() {
+    if (this.gazePanel) {
+      this.gazePanel.webview.postMessage({ type: "stop" });
+      this.gazePanel.dispose();
+      this.gazePanel = null;
+      console.log("[Gaze] Panel closed");
+    }
+  }
+
+  private handleGazeLinger(screenX: number, screenY: number) {
+    console.log("[Gaze] Linger detected at screen coords:", screenX, screenY);
+
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      console.log("[Gaze] No active editor");
+      return;
+    }
+
+    // Map screen Y to approximate editor line using visible range
+    const visibleRanges = editor.visibleRanges;
+    if (!visibleRanges.length) return;
+
+    const firstVisible = visibleRanges[0].start.line;
+    const lastVisible = visibleRanges[visibleRanges.length - 1].end.line;
+    const visibleLineCount = lastVisible - firstVisible + 1;
+
+    // Estimate: gaze panel is on the right, editor is on the left
+    // Screen Y maps roughly to the editor area. We use a proportion-based estimate.
+    // This is approximate — WebGazer gives screen-relative coords.
+    // The editor typically occupies the left ~60% of screen height from ~top bar to bottom.
+    const editorTopPx = 30; // approximate title bar height
+    const editorBottomPx =
+      (typeof screen !== "undefined" ? screen.availHeight : 900) - 30;
+    const editorHeightPx = editorBottomPx - editorTopPx;
+
+    const fractionY = Math.max(
+      0,
+      Math.min(1, (screenY - editorTopPx) / editorHeightPx),
+    );
+    const estimatedLine =
+      firstVisible + Math.round(fractionY * visibleLineCount);
+    const clampedLine = Math.max(
+      firstVisible,
+      Math.min(lastVisible, estimatedLine),
+    );
+
+    console.log(
+      "[Gaze] Estimated editor line:",
+      clampedLine,
+      "(visible:",
+      firstVisible,
+      "-",
+      lastVisible,
+      ")",
+    );
+
+    // Find which function contains this line
+    const doc = editor.document;
+    const text = doc.getText();
+    const lines = text.split(/\r?\n/);
+
+    // Parse functions: look for function-like patterns and track brace depth
+    const functions: { name: string; startLine: number; endLine: number }[] =
+      [];
+    const funcPattern =
+      /(?:function\s+(\w+)|(\w+)\s*\(.*\)\s*\{|(\w+)\s*=\s*(?:function|\(.*\)\s*=>))/;
+    let currentFunc: {
+      name: string;
+      startLine: number;
+      braceDepth: number;
+    } | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (!currentFunc) {
+        const match = lines[i].match(funcPattern);
+        if (match) {
+          const name = match[1] || match[2] || match[3] || "anonymous";
+          currentFunc = { name, startLine: i, braceDepth: 0 };
+        }
+      }
+      if (currentFunc) {
+        for (const ch of lines[i]) {
+          if (ch === "{") currentFunc.braceDepth++;
+          if (ch === "}") currentFunc.braceDepth--;
+        }
+        if (currentFunc.braceDepth <= 0 && lines[i].includes("}")) {
+          functions.push({
+            name: currentFunc.name,
+            startLine: currentFunc.startLine,
+            endLine: i,
+          });
+          currentFunc = null;
+        }
+      }
+    }
+
+    console.log(
+      "[Gaze] Found",
+      functions.length,
+      "functions:",
+      functions
+        .map((f) => `${f.name}(${f.startLine + 1}-${f.endLine + 1})`)
+        .join(", "),
+    );
+
+    // Find which function the gaze line falls in
+    const gazeFunc = functions.find(
+      (f) => clampedLine >= f.startLine && clampedLine <= f.endLine,
+    );
+
+    if (gazeFunc) {
+      console.log(
+        "[Gaze] Selecting function:",
+        gazeFunc.name,
+        "lines",
+        gazeFunc.startLine + 1,
+        "-",
+        gazeFunc.endLine + 1,
+      );
+
+      // Avoid re-selecting the same function repeatedly
+      const selKey = `${gazeFunc.startLine}-${gazeFunc.endLine}`;
+      if ((this as any)._lastGazeSelection === selKey) {
+        console.log("[Gaze] Same function already selected, skipping");
+        return;
+      }
+      (this as any)._lastGazeSelection = selKey;
+
+      const range = new vscode.Range(
+        new vscode.Position(gazeFunc.startLine, 0),
+        new vscode.Position(
+          gazeFunc.endLine,
+          lines[gazeFunc.endLine]?.length ?? 0,
+        ),
+      );
+      editor.selection = new vscode.Selection(range.start, range.end);
+      editor.revealRange(
+        range,
+        vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+      );
+    } else {
+      console.log("[Gaze] No function at line", clampedLine);
     }
   }
 }
