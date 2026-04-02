@@ -541,6 +541,24 @@ export function Chat() {
           break;
         }
 
+        case "select_all": {
+          if (!currentFile?.path || !currentFile.contents) {
+            void ideMessenger.ide.showToast("warning", "No file open.");
+            break;
+          }
+          const totalLines = currentFile.contents.split(/\r?\n/).length;
+          console.log(
+            "[Voice:Chat] selecting entire file, lines 1 -",
+            totalLines,
+          );
+          await ideMessenger.ide.showLines(currentFile.path, 0, totalLines - 1);
+          void ideMessenger.ide.showToast(
+            "info",
+            `Selected entire file (${totalLines} lines)`,
+          );
+          break;
+        }
+
         case "select_function": {
           if (!currentFile?.path || !intent.functionName) {
             void ideMessenger.ide.showToast(

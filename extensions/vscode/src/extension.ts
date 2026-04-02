@@ -47,6 +47,9 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  console.log(
+    "[Extension][BILLING] deactivate() called — context.subscriptions will be disposed by VS Code",
+  );
   void Telemetry.capture(
     "deactivate",
     {

@@ -132,12 +132,22 @@ function InputToolbar(props: InputToolbarProps) {
       }
     };
 
+    // Stop voice process when the webview/window is closing (prevents orphan WebSockets)
+    const handleBeforeUnload = () => {
+      console.log(
+        "[Voice:GUI] beforeunload: stopping voice to prevent orphan WebSockets",
+      );
+      void ideMessenger.post("voiceSelectionStop", undefined);
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     window.addEventListener("message", listener);
     return () => {
       window.removeEventListener("message", listener);
-      // Do NOT call cleanupVoiceSession here — voice should persist
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      // Do NOT call cleanupVoiceSession on React unmount — voice should persist
       // across UI changes (overview, explain, etc.) and only stop
-      // when the user explicitly clicks the mic button.
+      // when the user explicitly clicks the mic button or the window closes.
     };
   }, [ideMessenger]);
 

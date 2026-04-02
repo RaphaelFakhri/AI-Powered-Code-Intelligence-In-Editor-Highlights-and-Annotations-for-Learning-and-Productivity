@@ -53,6 +53,8 @@ export class VsCodeMessenger {
   private voiceSelectionProcess: childProcess.ChildProcessWithoutNullStreams | null =
     null;
   private voiceOutputBuffer = "";
+  private voiceSessionStart: number | null = null;
+  private activeFetchControllers: Set<AbortController> = new Set();
   private gazePanel: vscode.WebviewPanel | null = null;
   private gazeLingerDebounce: NodeJS.Timeout | null = null;
 
@@ -178,7 +180,15 @@ export class VsCodeMessenger {
 
     this.context.subscriptions.push({
       dispose: () => {
+        console.log(
+          "[Voice][BILLING] Extension dispose: cleaning up voice + aborting fetches",
+        );
         this.stopVoiceSelection();
+        // Abort all in-flight HTTP requests (TTS, LLM)
+        for (const controller of this.activeFetchControllers) {
+          controller.abort();
+        }
+        this.activeFetchControllers.clear();
       },
     });
 
@@ -916,12 +926,18 @@ export class VsCodeMessenger {
       return;
     }
 
+    // Forward billing logs from transcribe.js to VS Code output
+    if (trimmed.startsWith("[BILLING]")) {
+      console.log("[Voice:child]", trimmed);
+      return;
+    }
+
     let transcript: string | null = null;
 
     if (trimmed.startsWith("DG_FINAL:")) {
       transcript = trimmed.slice("DG_FINAL:".length).trim();
       console.log(
-        "[Voice] DG_FINAL detected, transcript:",
+        `[Voice][TIMING] DG_FINAL received at ${new Date().toISOString()}, transcript:`,
         JSON.stringify(transcript),
       );
     } else if (trimmed.startsWith(">>>")) {
@@ -943,7 +959,7 @@ export class VsCodeMessenger {
       return;
     }
 
-    // Classify via LLM instead of regex
+    // Classify: local fast-path first, then LLM fallback
     void this.classifyAndSendVoiceIntent(transcript);
   }
 
@@ -964,10 +980,199 @@ export class VsCodeMessenger {
     }
   }
 
+  // ─── Local fast-path voice command parser (no LLM needed) ─────────
+
+  private static readonly WORD_TO_NUMBER: Record<string, number> = {
+    zero: 0,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fifty: 50,
+    sixty: 60,
+    seventy: 70,
+    eighty: 80,
+    ninety: 90,
+    hundred: 100,
+  };
+
+  private parseSpokenNumber(value: string): number | null {
+    const trimmed = value.trim().toLowerCase().replace(/-/g, " ");
+    const asInt = Number.parseInt(trimmed, 10);
+    if (/^\d+$/.test(trimmed) && Number.isFinite(asInt) && asInt >= 0) {
+      return asInt;
+    }
+    const tokens = trimmed.split(/\s+/);
+    let current = 0;
+    let matched = false;
+    for (const token of tokens) {
+      if (token === "and" || token === "a") continue;
+      const val = VsCodeMessenger.WORD_TO_NUMBER[token];
+      if (val === undefined) {
+        if (matched) break;
+        return null;
+      }
+      matched = true;
+      if (val === 100) {
+        current = (current === 0 ? 1 : current) * 100;
+      } else {
+        current += val;
+      }
+    }
+    return matched && current > 0 ? current : null;
+  }
+
+  private tryLocalVoiceClassify(
+    transcript: string,
+  ): Record<string, unknown> | null {
+    const text = transcript
+      .trim()
+      .toLowerCase()
+      .replace(/[.,!?]+/g, "");
+    if (!text) return null;
+
+    // ── Line selection (ported from gui/src/utils/voiceCommandParser.ts) ──
+    const NUM = `(\\d+(?:\\s+\\d+)*|[a-z]+(?:[\\s-]+[a-z]+)*)`;
+    const rangePatterns = [
+      new RegExp(
+        `(?:select|highlight)\\s+lines?\\s+${NUM}\\s*(?:to|through|-)\\s*${NUM}`,
+      ),
+      new RegExp(`lines?\\s+${NUM}\\s*(?:to|through|-)\\s*${NUM}`),
+      new RegExp(`${NUM}\\s+(?:to|through)\\s+${NUM}`),
+    ];
+    const singlePatterns = [
+      new RegExp(`(?:select|highlight)\\s+lines?\\s+${NUM}`),
+      new RegExp(`lines?\\s+${NUM}`),
+    ];
+
+    for (const pattern of rangePatterns) {
+      const match = text.match(pattern);
+      if (!match || match[1] === undefined || match[2] === undefined) continue;
+      const start = this.parseSpokenNumber(match[1]);
+      const end = this.parseSpokenNumber(match[2]);
+      if (start === null || end === null) continue;
+      return {
+        action: "select_lines",
+        startLine: Math.min(start, end),
+        endLine: Math.max(start, end),
+      };
+    }
+    for (const pattern of singlePatterns) {
+      const match = text.match(pattern);
+      if (!match || match[1] === undefined) continue;
+      const line = this.parseSpokenNumber(match[1]);
+      if (line === null) continue;
+      return { action: "select_lines", startLine: line, endLine: line };
+    }
+
+    // ── "select the whole/entire file" ──
+    if (
+      /\b(?:select|highlight)\s+(?:the\s+)?(?:whole|entire|full)\s+file\b/.test(
+        text,
+      )
+    ) {
+      return { action: "select_all" };
+    }
+
+    // ── "select [the] X function" / "select function X" ──
+    const funcPatterns = [
+      /(?:select|highlight)\s+(?:the\s+)?(\w+)\s+(?:function|method|class)/,
+      /(?:select|highlight)\s+(?:function|method|class)\s+(\w+)/,
+    ];
+    for (const pattern of funcPatterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) {
+        return { action: "select_function", functionName: match[1] };
+      }
+    }
+
+    // ── Keyword-based intents (no LLM needed) ──
+    if (
+      /\b(?:overview|give\s+(?:me\s+)?(?:an?\s+)?overview|get\s+started)\b/.test(
+        text,
+      )
+    ) {
+      return { action: "overview" };
+    }
+    if (
+      /\b(?:tell\s+(?:me\s+)?(?:about\s+)?(?:the\s+)?api|explain\s+(?:the\s+)?api|api\s+explain|(?:give|show)\s+(?:me\s+)?(?:the\s+)?api)\b/.test(
+        text,
+      )
+    ) {
+      return { action: "explain_api" };
+    }
+    if (/\b(?:explain\s+(?:the\s+)?usage|usage\s+explain)\b/.test(text)) {
+      return { action: "explain_usage" };
+    }
+    if (/\b(?:explain\s+(?:the\s+)?concept|concept\s+explain)\b/.test(text)) {
+      return { action: "explain_concept" };
+    }
+    if (
+      /\b(?:explain|explain\s+this|explain\s+(?:the\s+)?code)\b/.test(text) &&
+      !/\b(?:api|usage|concept)\b/.test(text)
+    ) {
+      return { action: "explain_concept" };
+    }
+    if (
+      /\b(?:add\s+comment|inline\s+comment|add\s+inline\s+comment)\b/.test(text)
+    ) {
+      return { action: "inline_comment" };
+    }
+
+    // ── "custom prompt/question: ..." ──
+    const customMatch = text.match(
+      /\b(?:custom\s+(?:prompt|question)|ask\s+(?:a\s+)?custom\s+(?:question|prompt))\s*[,:.]?\s*(.*)/,
+    );
+    if (customMatch && customMatch[1]?.trim()) {
+      return { action: "custom_prompt", customPrompt: customMatch[1].trim() };
+    }
+
+    return null; // no local match → fall through to LLM
+  }
+
+  // ─── Voice intent classification ─────────────────────────────────
+
   private async classifyAndSendVoiceIntent(transcript: string) {
+    const t0 = Date.now();
     console.log(
-      "[Voice] classifyAndSendVoiceIntent:",
+      "[Voice][TIMING] classifyAndSendVoiceIntent START:",
       JSON.stringify(transcript),
+    );
+
+    // ── Fast path: try local regex parsing first (no network) ──
+    const localIntent = this.tryLocalVoiceClassify(transcript);
+    if (localIntent) {
+      const elapsed = Date.now() - t0;
+      console.log(
+        `[Voice][TIMING] LOCAL MATCH in ${elapsed}ms:`,
+        JSON.stringify(localIntent),
+      );
+      this.webviewProtocol.send("voiceIntent", {
+        ...localIntent,
+        transcript,
+      });
+      return;
+    }
+    console.log(
+      `[Voice][TIMING] No local match (${Date.now() - t0}ms), falling back to LLM`,
     );
 
     const config = this.readVoiceConfig();
@@ -1017,23 +1222,36 @@ ${fileContext}
 Return ONLY valid JSON.`;
 
     try {
-      console.log("[Voice] Calling LLM at", baseUrl, "model:", model);
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: transcript },
-          ],
-          temperature: 0,
-          max_tokens: 512,
-        }),
-      });
+      const tLlmStart = Date.now();
+      console.log(
+        `[Voice][TIMING] LLM call START at +${tLlmStart - t0}ms | url=${baseUrl} model=${model}`,
+      );
+      const llmAbort = new AbortController();
+      this.activeFetchControllers.add(llmAbort);
+      const llmTimeout = setTimeout(() => llmAbort.abort(), 30_000);
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: transcript },
+            ],
+            temperature: 0,
+            max_tokens: 512,
+          }),
+          signal: llmAbort.signal,
+        });
+      } finally {
+        clearTimeout(llmTimeout);
+        this.activeFetchControllers.delete(llmAbort);
+      }
 
       if (!response.ok) {
         const errText = await response.text();
@@ -1077,7 +1295,11 @@ Return ONLY valid JSON.`;
         return;
       }
       const intent = JSON.parse(jsonMatch[0]);
-      console.log("[Voice] Parsed intent:", JSON.stringify(intent));
+      const tTotal = Date.now() - t0;
+      console.log(
+        `[Voice][TIMING] LLM DONE in ${Date.now() - tLlmStart}ms | total pipeline: ${tTotal}ms | intent:`,
+        JSON.stringify(intent),
+      );
 
       this.webviewProtocol.send("voiceIntent", {
         action: intent.action || "unknown",
@@ -1088,7 +1310,10 @@ Return ONLY valid JSON.`;
         transcript,
       });
     } catch (err: any) {
-      console.log("[Voice] classifyAndSendVoiceIntent error:", err.message);
+      console.log(
+        `[Voice][TIMING] classifyAndSendVoiceIntent ERROR after ${Date.now() - t0}ms:`,
+        err.message,
+      );
       this.webviewProtocol.send("voiceIntent", {
         action: "unknown",
         transcript,
@@ -1254,6 +1479,13 @@ Return ONLY valid JSON.`;
         path.join(targetPosixDir, "config.yaml"),
       );
     }
+    const sourceKillScript = path.join(sourceDir, "kill-voice.ps1");
+    if (fs.existsSync(sourceKillScript)) {
+      fs.copyFileSync(
+        sourceKillScript,
+        path.join(targetPosixDir, "kill-voice.ps1"),
+      );
+    }
 
     const windowsDir = await this.execFileStdout("wslpath", [
       "-w",
@@ -1363,9 +1595,12 @@ Return ONLY valid JSON.`;
       "/c",
       launchCommand,
     ]);
+    this.voiceSessionStart = Date.now();
     console.log(
-      "[Voice] startVoiceSelection: process spawned, pid:",
+      "[Voice][BILLING] Voice session started: pid:",
       this.voiceSelectionProcess.pid,
+      "at",
+      new Date(this.voiceSessionStart).toISOString(),
     );
 
     console.log(
@@ -1429,12 +1664,45 @@ Return ONLY valid JSON.`;
       !!this.voiceSelectionProcess,
     );
     if (this.voiceSelectionProcess) {
+      const pid = this.voiceSelectionProcess.pid;
+      const sessionDuration = this.voiceSessionStart
+        ? ((Date.now() - this.voiceSessionStart) / 1000).toFixed(1)
+        : "unknown";
       console.log(
-        "[Voice] stopVoiceSelection: killing process pid:",
-        this.voiceSelectionProcess.pid,
+        `[Voice][BILLING] Stopping voice session: pid=${pid}, duration=${sessionDuration}s`,
       );
-      this.voiceSelectionProcess.kill();
+
+      // The voice process is spawned via cmd.exe (Windows) even when the
+      // extension host runs in WSL. The WSL PID != Windows PID, so taskkill
+      // by PID won't work. We use a staged PowerShell script (kill-voice.ps1)
+      // that finds node.exe running transcribe.js by command line and kills
+      // the entire process tree including ffmpeg.
+      if (pid) {
+        // 1) Kill WSL-side wrapper first
+        try {
+          this.voiceSelectionProcess.kill("SIGTERM");
+        } catch {}
+
+        // 2) Kill Windows-side via kill-voice.ps1
+        try {
+          const userProfile = childProcess
+            .execFileSync("cmd.exe", ["/d", "/c", "echo %USERPROFILE%"])
+            .toString()
+            .trim();
+          const killScriptWin = `${userProfile}\\.continue-voice\\kill-voice.ps1`;
+          childProcess.execSync(
+            `powershell.exe -ExecutionPolicy Bypass -File "${killScriptWin}"`,
+            { stdio: "pipe", timeout: 10000 },
+          );
+          console.log(
+            `[Voice][BILLING] kill-voice.ps1 executed — transcribe.js process tree killed`,
+          );
+        } catch (e: any) {
+          console.log(`[Voice][BILLING] kill-voice.ps1 failed: ${e.message}`);
+        }
+      }
       this.voiceSelectionProcess = null;
+      this.voiceSessionStart = null;
     }
     this.voiceOutputBuffer = "";
     console.log("[Voice] stopVoiceSelection: sending 'idle' status to webview");
@@ -1481,7 +1749,13 @@ Return ONLY valid JSON.`;
       truncated.length,
     );
 
+    const ttsAbort = new AbortController();
+    this.activeFetchControllers.add(ttsAbort);
+    const ttsTimeout = setTimeout(() => ttsAbort.abort(), 30_000);
+    const ttsStart = Date.now();
+
     try {
+      console.log("[Voice:TTS][BILLING] Deepgram TTS request started");
       const response = await fetch(
         `https://api.deepgram.com/v1/speak?model=${encodeURIComponent(model)}&encoding=mp3`,
         {
@@ -1491,15 +1765,17 @@ Return ONLY valid JSON.`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ text: truncated }),
+          signal: ttsAbort.signal,
         },
       );
 
       if (!response.ok) {
         const errText = await response.text();
         console.log(
-          "[Voice:TTS] Deepgram TTS error:",
+          "[Voice:TTS][BILLING] Deepgram TTS error:",
           response.status,
           errText,
+          `duration=${((Date.now() - ttsStart) / 1000).toFixed(1)}s`,
         );
         return;
       }
@@ -1507,9 +1783,7 @@ Return ONLY valid JSON.`;
       const arrayBuffer = await response.arrayBuffer();
       const base64 = Buffer.from(arrayBuffer).toString("base64");
       console.log(
-        "[Voice:TTS] Got audio, size:",
-        arrayBuffer.byteLength,
-        "bytes, sending to webview",
+        `[Voice:TTS][BILLING] Got audio: size=${arrayBuffer.byteLength}bytes, chars=${truncated.length}, duration=${((Date.now() - ttsStart) / 1000).toFixed(1)}s`,
       );
 
       this.webviewProtocol.send("voiceTtsAudio", {
@@ -1517,7 +1791,16 @@ Return ONLY valid JSON.`;
         mimeType: "audio/mpeg",
       });
     } catch (err: any) {
-      console.log("[Voice:TTS] Error:", err.message);
+      if (err.name === "AbortError") {
+        console.log(
+          "[Voice:TTS][BILLING] TTS request aborted (timeout or dispose)",
+        );
+      } else {
+        console.log("[Voice:TTS] Error:", err.message);
+      }
+    } finally {
+      clearTimeout(ttsTimeout);
+      this.activeFetchControllers.delete(ttsAbort);
     }
   }
 
