@@ -45,7 +45,8 @@ const DEEPGRAM_URL =
   "wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&channels=1&punctuate=true&interim_results=true";
 
 // Microphone device name - change if you need a different device
-const MICROPHONE_DEVICE = "Microphone (USB Condenser Microphone)";
+const MICROPHONE_DEVICE =
+  "Microphone Array (Intel® Smart Sound Technology for Digital Microphones)";
 
 console.log("=".repeat(50));
 console.log("Deepgram Real-Time Speech-to-Text");
@@ -62,23 +63,26 @@ ws.on("open", () => {
   console.log("Connected to Deepgram!");
 
   // Start ffmpeg to capture microphone audio
-  const ffmpeg = spawn("ffmpeg", [
-    "-loglevel",
-    "error",
-    "-f",
-    "dshow", // Windows DirectShow
-    "-i",
-    `audio=${MICROPHONE_DEVICE}`,
-    "-f",
-    "s16le", // Raw 16-bit PCM
-    "-ar",
-    "16000", // 16kHz sample rate
-    "-ac",
-    "1", // Mono channel
-    "-acodec",
-    "pcm_s16le",
-    "-",
-  ]);
+  const ffmpeg = spawn(
+    "C:\\Users\\rfakhri\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-full_build\\bin\\ffmpeg.exe",
+    [
+      "-loglevel",
+      "error",
+      "-f",
+      "dshow", // Windows DirectShow
+      "-i",
+      `audio=${MICROPHONE_DEVICE}`,
+      "-f",
+      "s16le", // Raw 16-bit PCM
+      "-ar",
+      "16000", // 16kHz sample rate
+      "-ac",
+      "1", // Mono channel
+      "-acodec",
+      "pcm_s16le",
+      "-",
+    ],
+  );
 
   ffmpeg.stdout.on("data", (chunk) => {
     if (ws.readyState === WebSocketImpl.OPEN) {
