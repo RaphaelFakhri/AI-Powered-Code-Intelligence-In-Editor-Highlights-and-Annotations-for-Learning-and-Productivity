@@ -67,6 +67,7 @@ function AIOverviewStyle1({
             {onExplainAPI && (
               <button
                 onClick={onExplainAPI}
+                data-gaze-action="explain_api"
                 className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
               >
                 API
@@ -75,6 +76,7 @@ function AIOverviewStyle1({
             {onExplainConcept && (
               <button
                 onClick={onExplainConcept}
+                data-gaze-action="explain_concept"
                 className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
               >
                 Concept
@@ -83,6 +85,7 @@ function AIOverviewStyle1({
             {onExplainUsage && (
               <button
                 onClick={onExplainUsage}
+                data-gaze-action="explain_usage"
                 className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
               >
                 Usage

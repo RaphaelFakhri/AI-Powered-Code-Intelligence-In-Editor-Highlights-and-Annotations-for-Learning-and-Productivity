@@ -146,6 +146,7 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
     {
       action:
         | "select_lines"
+        | "select_all"
         | "select_function"
         | "overview"
         | "explain_api"
@@ -162,4 +163,5 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
     },
     void,
   ];
+  gazeUpdate: [{ x: number; y: number; valid: boolean }, void];
 };

@@ -1,4 +1,8 @@
-import { ExclamationTriangleIcon, GiftIcon } from "@heroicons/react/24/outline";
+import {
+  ExclamationTriangleIcon,
+  GiftIcon,
+  Cog6ToothIcon,
+} from "@heroicons/react/24/outline";
 import { useContext, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { IdeMessengerContext } from "../../../../context/IdeMessenger";
@@ -74,10 +78,282 @@ export function BlockSettingsTopToolbar() {
   const { creditStatus, isUsingFreeTrial, refreshCreditStatus } =
     useCreditStatus();
 
+  const [gazePanelOpen, setGazePanelOpen] = useState(false);
+  const [gazeOffsetX, setGazeOffsetX] = useState(0);
+  const [gazeOffsetY, setGazeOffsetY] = useState(0);
+  const [gazeMomentumX, setGazeMomentumX] = useState(3.0);
+  const [gazeMomentumY, setGazeMomentumY] = useState(1.0);
+  const [gazeSmoothing, setGazeSmoothing] = useState(0.3);
+  const [gazeDwellMs, setGazeDwellMs] = useState(1500);
+  const [gazeHitRadius, setGazeHitRadius] = useState(40);
+
   return (
     <div className="flex flex-col gap-4">
       {!launchStarted && (
-        <div className="-mx-2 -mt-2 rounded-2xl bg-[rgb(52,87,177)] p-6 text-center">
+        <div className="relative -mx-2 -mt-2 rounded-2xl bg-[rgb(52,87,177)] p-6 text-center">
+          {/* Gaze Settings Ribbon */}
+          <button
+            onClick={() => setGazePanelOpen(!gazePanelOpen)}
+            style={{
+              background:
+                "linear-gradient(to bottom, rgba(255, 60, 60, 0.85), rgba(200, 30, 30, 0.9))",
+              borderRadius: "0 16px 0 12px",
+              border: "none",
+              outline: "none",
+            }}
+            className="absolute right-0 top-0 flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white shadow-lg transition-all hover:brightness-90"
+          >
+            <Cog6ToothIcon className="h-3.5 w-3.5" />
+            Gaze Settings
+          </button>
+
+          {gazePanelOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: 28,
+                right: 0,
+                zIndex: 99998,
+                background: "rgba(30, 30, 30, 0.95)",
+                border: "none",
+                borderRadius: "0 0 0 8px",
+                padding: 12,
+                width: 220,
+                fontSize: 11,
+                color: "#ccc",
+                backdropFilter: "blur(8px)",
+                textAlign: "left",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 10,
+                }}
+              >
+                <span style={{ fontWeight: 700, color: "#fff", fontSize: 12 }}>
+                  Gaze Calibration
+                </span>
+                <button
+                  onClick={() => setGazePanelOpen(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#888",
+                    cursor: "pointer",
+                    fontSize: 14,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Offset X */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Offset X</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeOffsetX.toFixed(3)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={-0.5}
+                  max={0.5}
+                  step={0.005}
+                  value={gazeOffsetX}
+                  onChange={(e) => setGazeOffsetX(parseFloat(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Offset Y */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Offset Y</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeOffsetY.toFixed(3)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={-0.5}
+                  max={0.5}
+                  step={0.005}
+                  value={gazeOffsetY}
+                  onChange={(e) => setGazeOffsetY(parseFloat(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Momentum X */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Momentum X</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeMomentumX.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={5.0}
+                  step={0.05}
+                  value={gazeMomentumX}
+                  onChange={(e) => setGazeMomentumX(parseFloat(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Momentum Y */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Momentum Y</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeMomentumY.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={5.0}
+                  step={0.05}
+                  value={gazeMomentumY}
+                  onChange={(e) => setGazeMomentumY(parseFloat(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Smoothing */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Smoothing</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeSmoothing.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={0.95}
+                  step={0.05}
+                  value={gazeSmoothing}
+                  onChange={(e) => setGazeSmoothing(parseFloat(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Dwell Time */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Dwell Time</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeDwellMs}ms
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={500}
+                  max={3000}
+                  step={100}
+                  value={gazeDwellMs}
+                  onChange={(e) => setGazeDwellMs(parseInt(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Hit Radius */}
+              <div style={{ marginBottom: 10 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span>Hit Radius</span>
+                  <span style={{ color: "#fff", fontFamily: "monospace" }}>
+                    {gazeHitRadius}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={15}
+                  max={100}
+                  step={5}
+                  value={gazeHitRadius}
+                  onChange={(e) => setGazeHitRadius(parseInt(e.target.value))}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {/* Save */}
+              <button
+                onClick={() => {
+                  console.log("[Gaze:GUI] Save calibration", {
+                    gazeOffsetX,
+                    gazeOffsetY,
+                    gazeMomentumX,
+                    gazeMomentumY,
+                    gazeSmoothing,
+                    gazeDwellMs,
+                    gazeHitRadius,
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "5px 0",
+                  background: "rgba(62, 106, 225, 0.9)",
+                  border: "none",
+                  borderRadius: 4,
+                  color: "#fff",
+                  fontWeight: 600,
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                Save Calibration
+              </button>
+            </div>
+          )}
           <div className="mb-2 text-sm font-bold uppercase tracking-wider text-white">
             Launch Overview
           </div>
@@ -87,6 +363,7 @@ export function BlockSettingsTopToolbar() {
           <div className="flex items-center justify-center gap-4">
             <button
               onClick={handleGetStartedClick}
+              data-gaze-action="overview"
               className={`rounded-full border-none bg-white px-8 py-3 text-base font-bold text-black transition-all hover:bg-gradient-to-b hover:from-gray-300 hover:to-white ${shimmerGetStarted ? "animate-shimmer animate-shimmer-active" : ""}`}
             >
               Get Started

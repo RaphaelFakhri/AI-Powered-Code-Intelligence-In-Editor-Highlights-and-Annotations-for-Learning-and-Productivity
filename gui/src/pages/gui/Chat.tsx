@@ -769,6 +769,119 @@ export function Chat() {
     history,
   ]);
 
+  // ─── Gaze: dot + button hover in sidebar webview ────────────────
+  const gazeHoverRef = useRef<{ action: string; since: number } | null>(null);
+  const gazeDotRef = useRef<HTMLDivElement | null>(null);
+  const GAZE_BUTTON_LINGER_MS = 1500;
+  const GAZE_HIT_RADIUS = 40; // px — generous hit area around buttons
+
+  // Gaze active tracking
+  const [gazeActive, setGazeActive] = useState(false);
+  const gazeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Create gaze dot element
+    let dot = document.getElementById("gaze-dot") as HTMLDivElement | null;
+    if (!dot) {
+      dot = document.createElement("div");
+      dot.id = "gaze-dot";
+      dot.style.cssText =
+        "position:fixed;width:16px;height:16px;border-radius:50%;background:rgba(255,60,60,0.7);" +
+        "border:2px solid rgba(255,255,255,0.8);pointer-events:none;z-index:99999;display:none;" +
+        "box-shadow:0 0 8px rgba(255,60,60,0.5);transition:left 0.05s linear,top 0.05s linear;";
+      document.body.appendChild(dot);
+    }
+    gazeDotRef.current = dot;
+
+    const handleGazeUpdate = (event: MessageEvent) => {
+      if (event.data?.messageType !== "gazeUpdate") return;
+      const { x, y } = event.data.data as { x: number; y: number };
+
+      // Track gaze active state (hide after 2s of no updates)
+      setGazeActive(true);
+      if (gazeTimeoutRef.current) clearTimeout(gazeTimeoutRef.current);
+      gazeTimeoutRef.current = setTimeout(() => setGazeActive(false), 2000);
+
+      const webviewX = x * window.innerWidth;
+      const webviewY = y * window.innerHeight;
+
+      // Update dot position
+      if (gazeDotRef.current) {
+        gazeDotRef.current.style.display = "block";
+        gazeDotRef.current.style.left = `${webviewX - 8}px`;
+        gazeDotRef.current.style.top = `${webviewY - 8}px`;
+      }
+
+      // Check proximity to gaze-enabled buttons
+      const gazeButtons =
+        document.querySelectorAll<HTMLElement>("[data-gaze-action]");
+      let hoveredAction: string | null = null;
+
+      for (const btn of gazeButtons) {
+        const rect = btn.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dist = Math.sqrt(
+          (webviewX - centerX) ** 2 + (webviewY - centerY) ** 2,
+        );
+        const hitRadius = Math.max(
+          GAZE_HIT_RADIUS,
+          rect.width / 2,
+          rect.height / 2,
+        );
+
+        if (dist < hitRadius) {
+          hoveredAction = btn.dataset.gazeAction || null;
+          btn.style.outline = "2px solid rgba(255, 100, 100, 0.8)";
+          btn.style.outlineOffset = "2px";
+        } else {
+          btn.style.outline = "";
+          btn.style.outlineOffset = "";
+        }
+      }
+
+      const now = Date.now();
+      if (hoveredAction) {
+        if (gazeHoverRef.current?.action === hoveredAction) {
+          if (now - gazeHoverRef.current.since >= GAZE_BUTTON_LINGER_MS) {
+            console.log("[Gaze:GUI] Button triggered:", hoveredAction);
+            gazeHoverRef.current = null;
+            switch (hoveredAction) {
+              case "overview":
+                startLaunch();
+                break;
+              case "explain_api":
+                triggerExplain("api");
+                break;
+              case "explain_concept":
+                triggerExplain("concept");
+                break;
+              case "explain_usage":
+                triggerExplain("usage");
+                break;
+            }
+            gazeButtons.forEach((b) => {
+              b.style.outline = "";
+              b.style.outlineOffset = "";
+            });
+          }
+        } else {
+          gazeHoverRef.current = { action: hoveredAction, since: now };
+        }
+      } else {
+        gazeHoverRef.current = null;
+      }
+    };
+
+    window.addEventListener("message", handleGazeUpdate);
+    return () => {
+      window.removeEventListener("message", handleGazeUpdate);
+      if (gazeDotRef.current) {
+        gazeDotRef.current.style.display = "none";
+      }
+    };
+  }, [startLaunch, triggerExplain]);
+
   // Voice TTS: uses global AudioContext unlocked by mic button click in InputToolbar
   const voiceTriggeredRef = useRef(false);
   const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -1013,18 +1126,21 @@ export function Chat() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => triggerExplain("api")}
+                    data-gaze-action="explain_api"
                     className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
                   >
                     API
                   </button>
                   <button
                     onClick={() => triggerExplain("concept")}
+                    data-gaze-action="explain_concept"
                     className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
                   >
                     Concept
                   </button>
                   <button
                     onClick={() => triggerExplain("usage")}
+                    data-gaze-action="explain_usage"
                     className="rounded-full border border-[rgb(62,106,225)] bg-[rgb(62,106,225)] px-3 py-1 text-xs font-bold text-white transition-all hover:bg-[rgb(62,106,225,0.85)]"
                   >
                     Usage

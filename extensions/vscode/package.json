@@ -381,6 +381,51 @@
         "category": "Continue",
         "title": "Open in new window",
         "group": "Continue"
+      },
+      {
+        "command": "continue.gazeOffsetUp",
+        "category": "Continue",
+        "title": "Gaze: Offset Up"
+      },
+      {
+        "command": "continue.gazeOffsetDown",
+        "category": "Continue",
+        "title": "Gaze: Offset Down"
+      },
+      {
+        "command": "continue.gazeOffsetLeft",
+        "category": "Continue",
+        "title": "Gaze: Offset Left"
+      },
+      {
+        "command": "continue.gazeOffsetRight",
+        "category": "Continue",
+        "title": "Gaze: Offset Right"
+      },
+      {
+        "command": "continue.gazeMomentumUp",
+        "category": "Continue",
+        "title": "Gaze: Momentum Up"
+      },
+      {
+        "command": "continue.gazeMomentumDown",
+        "category": "Continue",
+        "title": "Gaze: Momentum Down"
+      },
+      {
+        "command": "continue.gazeMomentumLeft",
+        "category": "Continue",
+        "title": "Gaze: Momentum Left"
+      },
+      {
+        "command": "continue.gazeMomentumRight",
+        "category": "Continue",
+        "title": "Gaze: Momentum Right"
+      },
+      {
+        "command": "continue.gazeSaveCalibration",
+        "category": "Continue",
+        "title": "Gaze: Save Calibration"
       }
     ],
     "keybindings": [
@@ -499,6 +544,51 @@
         "command": "continue.rejectJump",
         "key": "escape",
         "when": "editorTextFocus && continue.jumpDecorationVisible"
+      },
+      {
+        "command": "continue.gazeOffsetUp",
+        "key": "ctrl+up",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeOffsetDown",
+        "key": "ctrl+down",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeOffsetLeft",
+        "key": "ctrl+left",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeOffsetRight",
+        "key": "ctrl+right",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeMomentumUp",
+        "key": "shift+ctrl+up",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeMomentumDown",
+        "key": "shift+ctrl+down",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeMomentumLeft",
+        "key": "shift+ctrl+left",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeMomentumRight",
+        "key": "shift+ctrl+right",
+        "when": "continue.gazeActive"
+      },
+      {
+        "command": "continue.gazeSaveCalibration",
+        "key": "ctrl+shift+g",
+        "when": "continue.gazeActive"
       }
     ],
     "submenus": [

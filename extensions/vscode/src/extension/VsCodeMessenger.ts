@@ -55,8 +55,24 @@ export class VsCodeMessenger {
   private voiceOutputBuffer = "";
   private voiceSessionStart: number | null = null;
   private activeFetchControllers: Set<AbortController> = new Set();
-  private gazePanel: vscode.WebviewPanel | null = null;
-  private gazeLingerDebounce: NodeJS.Timeout | null = null;
+  private gazeProcess: childProcess.ChildProcessWithoutNullStreams | null =
+    null;
+  private gazeOutputBuffer = "";
+  private gazeActive = false;
+  private gazeLineDecoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: "rgba(255, 100, 100, 0.15)",
+    isWholeLine: true,
+    overviewRulerColor: "rgba(255, 100, 100, 0.6)",
+    overviewRulerLane: vscode.OverviewRulerLane.Center,
+    after: {
+      contentText: " \u25CF", // red dot
+      color: "rgba(255, 50, 50, 0.9)",
+    },
+  });
+  private gazeOffsetX = 0;
+  private gazeOffsetY = 0;
+  private gazeMomentumX = 3.0;
+  private gazeMomentumY = 1.0;
 
   onWebview<T extends keyof FromWebviewProtocol>(
     messageType: T,
@@ -162,12 +178,12 @@ export class VsCodeMessenger {
 
     this.onWebview("gazeStart", async () => {
       console.log("[Gaze] onWebview 'gazeStart'");
-      this.openGazePanel();
+      await this.startGazeTracking();
     });
 
     this.onWebview("gazeStop", async () => {
       console.log("[Gaze] onWebview 'gazeStop'");
-      this.closeGazePanel();
+      this.stopGazeTracking();
     });
 
     this.onWebview("acceptDiff", async ({ data: { filepath, streamId } }) => {
@@ -181,9 +197,10 @@ export class VsCodeMessenger {
     this.context.subscriptions.push({
       dispose: () => {
         console.log(
-          "[Voice][BILLING] Extension dispose: cleaning up voice + aborting fetches",
+          "[Voice][BILLING] Extension dispose: cleaning up voice + gaze + aborting fetches",
         );
         this.stopVoiceSelection();
+        this.stopGazeTracking();
         // Abort all in-flight HTTP requests (TTS, LLM)
         for (const controller of this.activeFetchControllers) {
           controller.abort();
@@ -191,6 +208,24 @@ export class VsCodeMessenger {
         this.activeFetchControllers.clear();
       },
     });
+
+    // ── Gaze calibration keyboard commands ──
+    const gazeCommands: [string, () => void][] = [
+      ["continue.gazeOffsetUp", () => this.adjustGazeOffset(0, -0.01)],
+      ["continue.gazeOffsetDown", () => this.adjustGazeOffset(0, 0.01)],
+      ["continue.gazeOffsetLeft", () => this.adjustGazeOffset(-0.01, 0)],
+      ["continue.gazeOffsetRight", () => this.adjustGazeOffset(0.01, 0)],
+      ["continue.gazeMomentumUp", () => this.adjustGazeMomentum(0, -0.05)],
+      ["continue.gazeMomentumDown", () => this.adjustGazeMomentum(0, 0.05)],
+      ["continue.gazeMomentumLeft", () => this.adjustGazeMomentum(-0.05, 0)],
+      ["continue.gazeMomentumRight", () => this.adjustGazeMomentum(0.05, 0)],
+      ["continue.gazeSaveCalibration", () => this.saveGazeCalibration()],
+    ];
+    for (const [cmd, handler] of gazeCommands) {
+      this.context.subscriptions.push(
+        vscode.commands.registerCommand(cmd, handler),
+      );
+    }
 
     this.onWebview("rejectDiff", async ({ data: { filepath, streamId } }) => {
       await vscode.commands.executeCommand(
@@ -1804,101 +1839,325 @@ Return ONLY valid JSON.`;
     }
   }
 
-  // ─── Gaze tracking ───────────────────────────────────────────────
+  // ─── Gaze tracking (Tobii Nexus) ──────────────────────────────
 
-  private openGazePanel() {
-    if (this.gazePanel) {
-      this.gazePanel.reveal();
+  private loadGazeCalibration() {
+    const config = this.readVoiceConfig();
+    if (config.gazeOffsetX)
+      this.gazeOffsetX = parseFloat(config.gazeOffsetX) || 0;
+    if (config.gazeOffsetY)
+      this.gazeOffsetY = parseFloat(config.gazeOffsetY) || 0;
+    if (config.gazeMomentumX)
+      this.gazeMomentumX = parseFloat(config.gazeMomentumX) || 1.0;
+    if (config.gazeMomentumY)
+      this.gazeMomentumY = parseFloat(config.gazeMomentumY) || 1.0;
+    console.log(
+      `[Gaze] Loaded calibration: offset=(${this.gazeOffsetX},${this.gazeOffsetY}) momentum=(${this.gazeMomentumX},${this.gazeMomentumY})`,
+    );
+  }
+
+  public saveGazeCalibration() {
+    const scriptPath = this.resolveVoiceScriptPosixPath();
+    if (!scriptPath) return;
+    const configPath = path.join(path.dirname(scriptPath), "config.yaml");
+    let content = "";
+    try {
+      content = fs.readFileSync(configPath, "utf8");
+    } catch {}
+    // Update or append gaze calibration values
+    const fields: Record<string, string> = {
+      gazeOffsetX: String(this.gazeOffsetX),
+      gazeOffsetY: String(this.gazeOffsetY),
+      gazeMomentumX: String(this.gazeMomentumX),
+      gazeMomentumY: String(this.gazeMomentumY),
+    };
+    for (const [key, val] of Object.entries(fields)) {
+      const regex = new RegExp(`^\\s*${key}\\s*:.*$`, "m");
+      if (regex.test(content)) {
+        content = content.replace(regex, `${key}: ${val}`);
+      } else {
+        content += `\n${key}: ${val}`;
+      }
+    }
+    fs.writeFileSync(configPath, content.trim() + "\n", "utf8");
+    console.log(`[Gaze] Calibration saved to ${configPath}`);
+    void vscode.window.showInformationMessage(
+      `Gaze calibration saved: offset=(${this.gazeOffsetX.toFixed(3)},${this.gazeOffsetY.toFixed(3)}) momentum=(${this.gazeMomentumX.toFixed(2)},${this.gazeMomentumY.toFixed(2)})`,
+    );
+  }
+
+  public adjustGazeOffset(dx: number, dy: number) {
+    this.gazeOffsetX += dx;
+    this.gazeOffsetY += dy;
+    void vscode.window.showInformationMessage(
+      `Gaze offset: X=${this.gazeOffsetX.toFixed(3)}, Y=${this.gazeOffsetY.toFixed(3)}`,
+    );
+  }
+
+  public adjustGazeMomentum(dx: number, dy: number) {
+    this.gazeMomentumX += dx;
+    this.gazeMomentumY += dy;
+    void vscode.window.showInformationMessage(
+      `Gaze momentum: X=${this.gazeMomentumX.toFixed(2)}, Y=${this.gazeMomentumY.toFixed(2)}`,
+    );
+  }
+
+  private async stageGazeFiles(): Promise<string | null> {
+    const scriptPath = this.resolveVoiceScriptPosixPath();
+    if (!scriptPath) return null;
+    const sourceDir = path.dirname(scriptPath);
+    const gazeSourceDir = path.join(sourceDir, "gaze-tobii");
+    if (!fs.existsSync(gazeSourceDir)) {
+      console.log("[Gaze] gaze-tobii source dir not found at", gazeSourceDir);
+      return null;
+    }
+    const profilePath = await this.resolveWindowsProfilePosixPath();
+    if (!profilePath) return null;
+    const targetPosixDir = path.join(profilePath, ".continue-gaze");
+    fs.mkdirSync(targetPosixDir, { recursive: true });
+    fs.mkdirSync(path.join(targetPosixDir, "data"), { recursive: true });
+    for (const file of fs.readdirSync(gazeSourceDir)) {
+      const src = path.join(gazeSourceDir, file);
+      if (fs.statSync(src).isFile()) {
+        fs.copyFileSync(src, path.join(targetPosixDir, file));
+      }
+    }
+    const dataDir = path.join(gazeSourceDir, "data");
+    if (fs.existsSync(dataDir)) {
+      for (const file of fs.readdirSync(dataDir)) {
+        fs.copyFileSync(
+          path.join(dataDir, file),
+          path.join(targetPosixDir, "data", file),
+        );
+      }
+    }
+    const killScript = path.join(sourceDir, "kill-gaze.ps1");
+    if (fs.existsSync(killScript)) {
+      fs.copyFileSync(killScript, path.join(targetPosixDir, "kill-gaze.ps1"));
+    }
+    const windowsDir = await this.execFileStdout("wslpath", [
+      "-w",
+      targetPosixDir,
+    ]);
+    console.log("[Gaze] Staged gaze files to", windowsDir);
+    return windowsDir;
+  }
+
+  private async ensureGazeBuild(windowsDir: string): Promise<boolean> {
+    const profilePath = await this.resolveWindowsProfilePosixPath();
+    if (!profilePath) return false;
+    const releaseDir = path.join(
+      profilePath,
+      ".continue-gaze",
+      "bin",
+      "Release",
+    );
+    if (fs.existsSync(releaseDir)) {
+      try {
+        const contents = fs.readdirSync(releaseDir);
+        if (contents.length > 0) {
+          console.log("[Gaze] Build exists, skipping dotnet build");
+          return true;
+        }
+      } catch {}
+    }
+    console.log("[Gaze] Building gaze-tobii...");
+    try {
+      await this.execFileStdout("cmd.exe", [
+        "/d",
+        "/c",
+        `cd /d ${windowsDir} && dotnet build -c Release`,
+      ]);
+      console.log("[Gaze] Build succeeded");
+      return true;
+    } catch (e: any) {
+      console.log("[Gaze] Build failed:", e.message);
+      return false;
+    }
+  }
+
+  private async startGazeTracking() {
+    if (this.gazeProcess) {
+      console.log("[Gaze] Already running");
       return;
     }
+    this.loadGazeCalibration();
 
-    const extensionUri = this.context.extensionUri;
-
-    // Find webgazer.js from gui/node_modules
-    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-    let webgazerPath: string | null = null;
-    for (const folder of workspaceFolders) {
-      let dir = folder.uri.fsPath;
-      for (let d = 0; d < 6; d++) {
-        const candidate = path.join(
-          dir,
-          "gui",
-          "node_modules",
-          "webgazer",
-          "dist",
-          "webgazer.js",
-        );
-        if (fs.existsSync(candidate)) {
-          webgazerPath = candidate;
-          break;
-        }
-        const parent = path.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
-      if (webgazerPath) break;
+    const windowsDir = await this.stageGazeFiles();
+    if (!windowsDir) {
+      void vscode.window.showErrorMessage("Gaze: Failed to stage Tobii files.");
+      return;
     }
-
-    this.gazePanel = vscode.window.createWebviewPanel(
-      "gazeTracker",
-      "Gaze Tracker",
-      vscode.ViewColumn.Two,
-      {
-        enableScripts: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, "media"),
-          ...(webgazerPath
-            ? [vscode.Uri.file(path.dirname(webgazerPath))]
-            : []),
-        ],
-      },
-    );
-
-    // Read HTML template and inject webgazer URI
-    const htmlPath = path.join(
-      extensionUri.fsPath,
-      "media",
-      "gazeTracker.html",
-    );
-    let html = fs.readFileSync(htmlPath, "utf8");
-
-    if (webgazerPath) {
-      const webgazerUri = this.gazePanel.webview.asWebviewUri(
-        vscode.Uri.file(webgazerPath),
+    const buildOk = await this.ensureGazeBuild(windowsDir);
+    if (!buildOk) {
+      void vscode.window.showErrorMessage(
+        "Gaze: dotnet build failed. Ensure .NET 9 SDK is installed.",
       );
-      html = html.replace("WEBGAZER_URI_PLACEHOLDER", webgazerUri.toString());
+      return;
     }
+    const profilePath = await this.resolveWindowsProfilePosixPath();
+    if (!profilePath) return;
+    const releaseDir = path.join(
+      profilePath,
+      ".continue-gaze",
+      "bin",
+      "Release",
+    );
+    let targetFramework = "";
+    try {
+      targetFramework =
+        fs.readdirSync(releaseDir).find((d: string) => d.startsWith("net")) ||
+        "";
+    } catch {}
+    if (!targetFramework) {
+      void vscode.window.showErrorMessage("Gaze: Could not find build output.");
+      return;
+    }
+    const exeWindowsDir = `${windowsDir}\\bin\\Release\\${targetFramework}`;
+    const launchCommand = `cd /d ${exeWindowsDir} && dotnet GazeTobii.dll`;
+    console.log("[Gaze] Spawning:", launchCommand);
 
-    this.gazePanel.webview.html = html;
-    console.log("[Gaze] Panel opened");
+    this.gazeProcess = childProcess.spawn("cmd.exe", [
+      "/d",
+      "/c",
+      launchCommand,
+    ]);
+    this.gazeActive = true;
+    this.gazeOutputBuffer = "";
+    void vscode.commands.executeCommand(
+      "setContext",
+      "continue.gazeActive",
+      true,
+    );
+    console.log("[Gaze] Process spawned, pid:", this.gazeProcess.pid);
 
-    this.gazePanel.webview.onDidReceiveMessage((msg) => {
-      if (msg.type === "gazeReady") {
-        console.log("[Gaze] Calibration complete, tracking active");
-      } else if (msg.type === "gazeLinger") {
-        this.handleGazeLinger(msg.x, msg.y);
-      } else if (msg.type === "gazeCoords") {
-        // Optional: could use for real-time gaze indicator
+    this.gazeProcess.stdout.on("data", (chunk: Buffer) => {
+      this.gazeOutputBuffer += chunk.toString("utf8");
+      const lines = this.gazeOutputBuffer.split(/\r?\n|\r/);
+      this.gazeOutputBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        this.relayGazeLine(line.trim());
       }
     });
 
-    this.gazePanel.onDidDispose(() => {
-      console.log("[Gaze] Panel disposed");
-      this.gazePanel = null;
+    this.gazeProcess.stderr.on("data", (chunk: Buffer) => {
+      const msg = chunk.toString("utf8").trim();
+      if (msg) console.log("[Gaze:stderr]", msg);
+    });
+
+    this.gazeProcess.on("close", (code, signal) => {
+      console.log("[Gaze] Process closed, code:", code, "signal:", signal);
+      this.gazeProcess = null;
+      this.gazeActive = false;
+      void vscode.commands.executeCommand(
+        "setContext",
+        "continue.gazeActive",
+        false,
+      );
+    });
+
+    this.gazeProcess.on("error", (err) => {
+      console.log("[Gaze] Process error:", err.message);
     });
   }
 
-  private closeGazePanel() {
-    if (this.gazePanel) {
-      this.gazePanel.webview.postMessage({ type: "stop" });
-      this.gazePanel.dispose();
-      this.gazePanel = null;
-      console.log("[Gaze] Panel closed");
+  private applyGazeCalibration(rawX: number, rawY: number): [number, number] {
+    return [
+      (rawX - 0.5) * this.gazeMomentumX + 0.5 + this.gazeOffsetX,
+      (rawY - 0.5) * this.gazeMomentumY + 0.5 + this.gazeOffsetY,
+    ];
+  }
+
+  private updateGazeDot(normalizedY: number) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    const visibleRanges = editor.visibleRanges;
+    if (!visibleRanges.length) return;
+    const firstVisible = visibleRanges[0].start.line;
+    const lastVisible = visibleRanges[visibleRanges.length - 1].end.line;
+    const visibleLineCount = lastVisible - firstVisible + 1;
+    const fractionY = Math.max(0, Math.min(1, normalizedY));
+    const estimatedLine =
+      firstVisible + Math.round(fractionY * visibleLineCount);
+    const clampedLine = Math.max(
+      firstVisible,
+      Math.min(lastVisible, estimatedLine),
+    );
+    editor.setDecorations(this.gazeLineDecoration, [
+      new vscode.Range(clampedLine, 0, clampedLine, 0),
+    ]);
+  }
+
+  private relayGazeLine(line: string) {
+    if (!line) return;
+    if (line.startsWith("GAZE_LINGER:")) {
+      try {
+        const data = JSON.parse(line.slice("GAZE_LINGER:".length));
+        const [adjX, adjY] = this.applyGazeCalibration(data.x, data.y);
+        console.log(
+          `[Gaze] Linger: raw=(${data.x.toFixed(3)},${data.y.toFixed(3)}) adj=(${adjX.toFixed(3)},${adjY.toFixed(3)})`,
+        );
+        this.handleGazeLinger(adjX, adjY);
+      } catch (e: any) {
+        console.log("[Gaze] Parse linger failed:", e.message);
+      }
+    } else if (line.startsWith("GAZE:")) {
+      try {
+        const data = JSON.parse(line.slice("GAZE:".length));
+        if (data.valid) {
+          const [adjX, adjY] = this.applyGazeCalibration(data.x, data.y);
+          this.updateGazeDot(adjY);
+          // Forward to webview so GUI buttons can react to gaze
+          this.webviewProtocol.send("gazeUpdate", {
+            x: adjX,
+            y: adjY,
+            valid: true,
+          });
+        }
+      } catch {}
     }
   }
 
-  private handleGazeLinger(screenX: number, screenY: number) {
-    console.log("[Gaze] Linger detected at screen coords:", screenX, screenY);
+  private stopGazeTracking() {
+    console.log("[Gaze] stopGazeTracking, process:", !!this.gazeProcess);
+    if (this.gazeProcess) {
+      try {
+        this.gazeProcess.kill("SIGTERM");
+      } catch {}
+      // Kill Windows-side via kill-gaze.ps1
+      try {
+        const userProfile = childProcess
+          .execFileSync("cmd.exe", ["/d", "/c", "echo %USERPROFILE%"])
+          .toString()
+          .trim();
+        childProcess.execSync(
+          `powershell.exe -ExecutionPolicy Bypass -File "${userProfile}\\.continue-gaze\\kill-gaze.ps1"`,
+          { stdio: "pipe", timeout: 10000 },
+        );
+        console.log("[Gaze] kill-gaze.ps1 executed");
+      } catch (e: any) {
+        console.log("[Gaze] kill-gaze.ps1 failed:", e.message);
+      }
+      this.gazeProcess = null;
+    }
+    this.gazeActive = false;
+    this.gazeOutputBuffer = "";
+    const editor = vscode.window.activeTextEditor;
+    if (editor) editor.setDecorations(this.gazeLineDecoration, []);
+    void vscode.commands.executeCommand(
+      "setContext",
+      "continue.gazeActive",
+      false,
+    );
+    console.log("[Gaze] Tracking stopped");
+  }
+
+  private handleGazeLinger(normalizedX: number, normalizedY: number) {
+    console.log(
+      "[Gaze] Linger detected at normalized coords:",
+      normalizedX.toFixed(3),
+      normalizedY.toFixed(3),
+    );
 
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -1906,7 +2165,8 @@ Return ONLY valid JSON.`;
       return;
     }
 
-    // Map screen Y to approximate editor line using visible range
+    // Map normalized Y (0=top, 1=bottom of screen) to editor line
+    // The editor area is roughly the middle portion of screen height
     const visibleRanges = editor.visibleRanges;
     if (!visibleRanges.length) return;
 
@@ -1914,19 +2174,9 @@ Return ONLY valid JSON.`;
     const lastVisible = visibleRanges[visibleRanges.length - 1].end.line;
     const visibleLineCount = lastVisible - firstVisible + 1;
 
-    // Estimate: gaze panel is on the right, editor is on the left
-    // Screen Y maps roughly to the editor area. We use a proportion-based estimate.
-    // This is approximate — WebGazer gives screen-relative coords.
-    // The editor typically occupies the left ~60% of screen height from ~top bar to bottom.
-    const editorTopPx = 30; // approximate title bar height
-    const editorBottomPx =
-      (typeof screen !== "undefined" ? screen.availHeight : 900) - 30;
-    const editorHeightPx = editorBottomPx - editorTopPx;
-
-    const fractionY = Math.max(
-      0,
-      Math.min(1, (screenY - editorTopPx) / editorHeightPx),
-    );
+    // Normalized Y maps directly — 0.0 = top of screen, 1.0 = bottom
+    // The keyboard offset/momentum calibration handles the adjustment
+    const fractionY = Math.max(0, Math.min(1, normalizedY));
     const estimatedLine =
       firstVisible + Math.round(fractionY * visibleLineCount);
     const clampedLine = Math.max(
