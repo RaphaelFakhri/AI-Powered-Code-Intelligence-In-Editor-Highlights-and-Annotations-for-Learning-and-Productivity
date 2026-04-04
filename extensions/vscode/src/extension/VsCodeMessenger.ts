@@ -74,6 +74,10 @@ export class VsCodeMessenger {
   private gazeMomentumX = 3.0;
   private gazeMomentumY = 1.0;
   private gazeDwellMs = 1500;
+  private gazeSmoothing = 0.3;
+  private gazeHitRadius = 40;
+  private gazeSmoothedX: number | null = null;
+  private gazeSmoothedY: number | null = null;
   private gazeLingerStart: number | null = null;
   private gazeLingerPos: { x: number; y: number } | null = null;
 
@@ -196,6 +200,8 @@ export class VsCodeMessenger {
       this.gazeMomentumX = data.momentumX;
       this.gazeMomentumY = data.momentumY;
       this.gazeDwellMs = data.dwellMs;
+      this.gazeSmoothing = data.smoothing;
+      this.gazeHitRadius = data.hitRadius;
       if (data.action === "save") {
         this.saveGazeCalibration();
       }
@@ -1866,8 +1872,14 @@ Return ONLY valid JSON.`;
       this.gazeMomentumX = parseFloat(config.gazeMomentumX) || 1.0;
     if (config.gazeMomentumY)
       this.gazeMomentumY = parseFloat(config.gazeMomentumY) || 1.0;
+    if (config.gazeSmoothing)
+      this.gazeSmoothing = parseFloat(config.gazeSmoothing) || 0.3;
+    if (config.gazeDwellMs)
+      this.gazeDwellMs = parseInt(config.gazeDwellMs) || 1500;
+    if (config.gazeHitRadius)
+      this.gazeHitRadius = parseInt(config.gazeHitRadius) || 40;
     console.log(
-      `[Gaze] Loaded calibration: offset=(${this.gazeOffsetX},${this.gazeOffsetY}) momentum=(${this.gazeMomentumX},${this.gazeMomentumY})`,
+      `[Gaze] Loaded calibration: offset=(${this.gazeOffsetX},${this.gazeOffsetY}) momentum=(${this.gazeMomentumX},${this.gazeMomentumY}) smoothing=${this.gazeSmoothing} dwell=${this.gazeDwellMs}ms`,
     );
   }
 
@@ -1885,6 +1897,9 @@ Return ONLY valid JSON.`;
       gazeOffsetY: String(this.gazeOffsetY),
       gazeMomentumX: String(this.gazeMomentumX),
       gazeMomentumY: String(this.gazeMomentumY),
+      gazeSmoothing: String(this.gazeSmoothing),
+      gazeDwellMs: String(this.gazeDwellMs),
+      gazeHitRadius: String(this.gazeHitRadius),
     };
     for (const [key, val] of Object.entries(fields)) {
       const regex = new RegExp(`^\\s*${key}\\s*:.*$`, "m");
@@ -1897,7 +1912,7 @@ Return ONLY valid JSON.`;
     fs.writeFileSync(configPath, content.trim() + "\n", "utf8");
     console.log(`[Gaze] Calibration saved to ${configPath}`);
     void vscode.window.showInformationMessage(
-      `Gaze calibration saved: offset=(${this.gazeOffsetX.toFixed(3)},${this.gazeOffsetY.toFixed(3)}) momentum=(${this.gazeMomentumX.toFixed(2)},${this.gazeMomentumY.toFixed(2)})`,
+      `Gaze calibration saved: offset=(${this.gazeOffsetX.toFixed(3)},${this.gazeOffsetY.toFixed(3)}) momentum=(${this.gazeMomentumX.toFixed(2)},${this.gazeMomentumY.toFixed(2)}) smoothing=${this.gazeSmoothing.toFixed(2)} dwell=${this.gazeDwellMs}ms`,
     );
   }
 
@@ -2050,6 +2065,9 @@ Return ONLY valid JSON.`;
       offsetY: this.gazeOffsetY,
       momentumX: this.gazeMomentumX,
       momentumY: this.gazeMomentumY,
+      smoothing: this.gazeSmoothing,
+      dwellMs: this.gazeDwellMs,
+      hitRadius: this.gazeHitRadius,
     });
     console.log("[Gaze] Process spawned, pid:", this.gazeProcess.pid);
 
@@ -2098,7 +2116,9 @@ Return ONLY valid JSON.`;
     const firstVisible = visibleRanges[0].start.line;
     const lastVisible = visibleRanges[visibleRanges.length - 1].end.line;
     const visibleLineCount = lastVisible - firstVisible + 1;
+
     const fractionY = Math.max(0, Math.min(1, normalizedY));
+
     const estimatedLine =
       firstVisible + Math.round(fractionY * visibleLineCount);
     const clampedLine = Math.max(
@@ -2108,7 +2128,10 @@ Return ONLY valid JSON.`;
     editor.setDecorations(this.gazeLineDecoration, [
       new vscode.Range(clampedLine, 0, clampedLine, 0),
     ]);
+    this.lastGazeDotLine = clampedLine;
   }
+  private lastGazeDotLine = -1;
+  private gazeFrameCount = 0;
 
   private relayGazeLine(line: string) {
     if (!line) return;
@@ -2119,7 +2142,25 @@ Return ONLY valid JSON.`;
       try {
         const data = JSON.parse(line.slice("GAZE:".length));
         if (data.valid) {
-          const [adjX, adjY] = this.applyGazeCalibration(data.x, data.y);
+          const [calX, calY] = this.applyGazeCalibration(data.x, data.y);
+          // EMA smoothing: 0 = raw/jittery, 1 = max smooth/laggy
+          // `keep` is how much of the previous value to retain
+          const keep = this.gazeSmoothing;
+          if (this.gazeSmoothedX === null) {
+            this.gazeSmoothedX = calX;
+            this.gazeSmoothedY = calY;
+          } else {
+            this.gazeSmoothedX = this.gazeSmoothedX * keep + calX * (1 - keep);
+            this.gazeSmoothedY = this.gazeSmoothedY! * keep + calY * (1 - keep);
+          }
+          const adjX = this.gazeSmoothedX;
+          const adjY = this.gazeSmoothedY!;
+          this.gazeFrameCount++;
+          if (this.gazeFrameCount % 30 === 0) {
+            console.log(
+              `[Gaze:frame] raw=(${data.x.toFixed(3)},${data.y.toFixed(3)}) cal=(${calX.toFixed(3)},${calY.toFixed(3)}) smooth=(${adjX.toFixed(3)},${adjY.toFixed(3)}) dotLine=${this.lastGazeDotLine}`,
+            );
+          }
           this.updateGazeDot(adjY);
           this.webviewProtocol.send("gazeUpdate", {
             x: adjX,
@@ -2127,36 +2168,36 @@ Return ONLY valid JSON.`;
             valid: true,
           });
 
-          // Dwell detection: stable gaze within tolerance triggers linger
+          // Dwell detection: use the current dot line directly
+          // The dot already shows where the gaze is — select whatever it's on
           const now = Date.now();
-          const tolerance = 0.12; // ~12% of screen — generous for webcam jitter
+          const currentDotLine = this.lastGazeDotLine;
           if (
             this.gazeLingerPos &&
-            Math.abs(adjX - this.gazeLingerPos.x) < tolerance &&
-            Math.abs(adjY - this.gazeLingerPos.y) < tolerance
+            Math.abs(currentDotLine - this.gazeLingerPos.y) <= 2
           ) {
-            // Smooth the position while dwelling
-            this.gazeLingerPos.x = this.gazeLingerPos.x * 0.8 + adjX * 0.2;
-            this.gazeLingerPos.y = this.gazeLingerPos.y * 0.8 + adjY * 0.2;
             if (
               this.gazeLingerStart &&
               now - this.gazeLingerStart >= this.gazeDwellMs
             ) {
               console.log(
-                `[Gaze] Dwell triggered (${this.gazeDwellMs}ms) at (${adjX.toFixed(3)},${adjY.toFixed(3)})`,
+                `[Gaze] Dwell triggered (${this.gazeDwellMs}ms) at dotLine=${currentDotLine}`,
               );
-              this.handleGazeLinger(this.gazeLingerPos.x, this.gazeLingerPos.y);
+              this.handleGazeLingerAtLine(currentDotLine);
               this.gazeLingerStart = null;
               this.gazeLingerPos = null;
             }
           } else {
             this.gazeLingerStart = now;
-            this.gazeLingerPos = { x: adjX, y: adjY };
+            this.gazeLingerPos = { x: 0, y: currentDotLine };
           }
         } else {
-          // Invalid gaze breaks dwell
+          // Invalid gaze breaks dwell and smoothing
           this.gazeLingerStart = null;
           this.gazeLingerPos = null;
+
+          this.gazeSmoothedX = null;
+          this.gazeSmoothedY = null;
         }
       } catch {}
     }
@@ -2196,47 +2237,15 @@ Return ONLY valid JSON.`;
     console.log("[Gaze] Tracking stopped");
   }
 
-  private handleGazeLinger(normalizedX: number, normalizedY: number) {
-    console.log(
-      "[Gaze] Linger detected at normalized coords:",
-      normalizedX.toFixed(3),
-      normalizedY.toFixed(3),
-    );
-
+  private handleGazeLingerAtLine(line: number) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
       console.log("[Gaze] No active editor");
       return;
     }
 
-    // Map normalized Y (0=top, 1=bottom of screen) to editor line
-    // The editor area is roughly the middle portion of screen height
-    const visibleRanges = editor.visibleRanges;
-    if (!visibleRanges.length) return;
-
-    const firstVisible = visibleRanges[0].start.line;
-    const lastVisible = visibleRanges[visibleRanges.length - 1].end.line;
-    const visibleLineCount = lastVisible - firstVisible + 1;
-
-    // Normalized Y maps directly — 0.0 = top of screen, 1.0 = bottom
-    // The keyboard offset/momentum calibration handles the adjustment
-    const fractionY = Math.max(0, Math.min(1, normalizedY));
-    const estimatedLine =
-      firstVisible + Math.round(fractionY * visibleLineCount);
-    const clampedLine = Math.max(
-      firstVisible,
-      Math.min(lastVisible, estimatedLine),
-    );
-
-    console.log(
-      "[Gaze] Estimated editor line:",
-      clampedLine,
-      "(visible:",
-      firstVisible,
-      "-",
-      lastVisible,
-      ")",
-    );
+    const clampedLine = line;
+    console.log(`[Gaze] Linger at dot line=${clampedLine}`);
 
     // Find which function contains this line
     const doc = editor.document;
@@ -2287,10 +2296,26 @@ Return ONLY valid JSON.`;
         .join(", "),
     );
 
-    // Find which function the gaze line falls in
-    const gazeFunc = functions.find(
+    // Find which function the gaze line falls in, or snap to nearest
+    let gazeFunc = functions.find(
       (f) => clampedLine >= f.startLine && clampedLine <= f.endLine,
     );
+    if (!gazeFunc && functions.length > 0) {
+      let minDist = Infinity;
+      for (const f of functions) {
+        const dist =
+          clampedLine < f.startLine
+            ? f.startLine - clampedLine
+            : clampedLine - f.endLine;
+        if (dist < minDist) {
+          minDist = dist;
+          gazeFunc = f;
+        }
+      }
+      console.log(
+        `[Gaze] Snapped to nearest function: ${gazeFunc!.name} (${minDist} lines away)`,
+      );
+    }
 
     if (gazeFunc) {
       console.log(

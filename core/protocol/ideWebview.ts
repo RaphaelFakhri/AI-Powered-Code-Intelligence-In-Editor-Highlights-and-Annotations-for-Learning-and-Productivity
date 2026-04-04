@@ -183,6 +183,9 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
       offsetY: number;
       momentumX: number;
       momentumY: number;
+      smoothing: number;
+      dwellMs: number;
+      hitRadius: number;
     },
     void,
   ];

@@ -780,6 +780,7 @@ export function Chat() {
   const gazeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for gaze calibration updates from BlockSettingsTopToolbar
+  const [gazeCalibDots, setGazeCalibDots] = useState(false);
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -787,8 +788,15 @@ export function Chat() {
       if (detail.hitRadius !== undefined)
         gazeHitRadiusRef.current = detail.hitRadius;
     };
+    const dotsHandler = (e: Event) => {
+      setGazeCalibDots((e as CustomEvent).detail.show);
+    };
     window.addEventListener("gazeCalibrationUpdate", handler);
-    return () => window.removeEventListener("gazeCalibrationUpdate", handler);
+    window.addEventListener("gazeCalibrationDots", dotsHandler);
+    return () => {
+      window.removeEventListener("gazeCalibrationUpdate", handler);
+      window.removeEventListener("gazeCalibrationDots", dotsHandler);
+    };
   }, []);
 
   useEffect(() => {
@@ -1226,6 +1234,46 @@ export function Chat() {
     <>
       {!!showSessionTabs && !isInEdit && <TabBar ref={tabsRef} />}
       {widget}
+
+      {/* Gaze calibration target dots */}
+      {gazeCalibDots && (
+        <>
+          {[
+            { top: "30%", left: "10%" },
+            { top: "60%", left: "50%" },
+            { bottom: "10%", left: "10%" },
+            { bottom: "10%", right: "10%" },
+          ].map((pos, i) => (
+            <div
+              key={i}
+              style={{
+                position: "fixed",
+                ...pos,
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                background: "rgba(0, 255, 100, 0.8)",
+                border: "2px solid white",
+                boxShadow: "0 0 12px rgba(0, 255, 100, 0.6)",
+                zIndex: 99997,
+                pointerEvents: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: "50%",
+                  background: "white",
+                }}
+              />
+            </div>
+          ))}
+        </>
+      )}
 
       <StepsDiv
         ref={stepsDivRef}
