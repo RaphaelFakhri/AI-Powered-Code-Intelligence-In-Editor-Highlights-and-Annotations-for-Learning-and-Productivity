@@ -87,6 +87,72 @@ export function BlockSettingsTopToolbar() {
   const [gazeDwellMs, setGazeDwellMs] = useState(1500);
   const [gazeHitRadius, setGazeHitRadius] = useState(40);
 
+  // Initialize sliders from saved calibration when gaze starts
+  useEffect(() => {
+    const handleSync = (event: any) => {
+      if (event.data?.messageType !== "gazeCalibrationSync") return;
+      const d = event.data.data;
+      if (d.offsetX !== undefined) setGazeOffsetX(d.offsetX);
+      if (d.offsetY !== undefined) setGazeOffsetY(d.offsetY);
+      if (d.momentumX !== undefined) setGazeMomentumX(d.momentumX);
+      if (d.momentumY !== undefined) setGazeMomentumY(d.momentumY);
+    };
+    window.addEventListener("message", handleSync);
+    return () => window.removeEventListener("message", handleSync);
+  }, []);
+
+  const gazeValuesRef = useRef({
+    gazeOffsetX,
+    gazeOffsetY,
+    gazeMomentumX,
+    gazeMomentumY,
+    gazeSmoothing,
+    gazeDwellMs,
+    gazeHitRadius,
+  });
+  gazeValuesRef.current = {
+    gazeOffsetX,
+    gazeOffsetY,
+    gazeMomentumX,
+    gazeMomentumY,
+    gazeSmoothing,
+    gazeDwellMs,
+    gazeHitRadius,
+  };
+
+  const sendGazeCalibration = (action: "update" | "save") => {
+    const v = gazeValuesRef.current;
+    void ideMessenger.post("gazeCalibrate", {
+      action,
+      offsetX: v.gazeOffsetX,
+      offsetY: v.gazeOffsetY,
+      momentumX: v.gazeMomentumX,
+      momentumY: v.gazeMomentumY,
+      smoothing: v.gazeSmoothing,
+      dwellMs: v.gazeDwellMs,
+      hitRadius: v.gazeHitRadius,
+    });
+  };
+
+  // Send live updates when sliders change
+  useEffect(() => {
+    sendGazeCalibration("update");
+    // Broadcast dwellMs and hitRadius to Chat.tsx gaze hover logic
+    window.dispatchEvent(
+      new CustomEvent("gazeCalibrationUpdate", {
+        detail: { dwellMs: gazeDwellMs, hitRadius: gazeHitRadius },
+      }),
+    );
+  }, [
+    gazeOffsetX,
+    gazeOffsetY,
+    gazeMomentumX,
+    gazeMomentumY,
+    gazeSmoothing,
+    gazeDwellMs,
+    gazeHitRadius,
+  ]);
+
   return (
     <div className="flex flex-col gap-4">
       {!launchStarted && (
@@ -291,7 +357,7 @@ export function BlockSettingsTopToolbar() {
                 </div>
                 <input
                   type="range"
-                  min={500}
+                  min={100}
                   max={3000}
                   step={100}
                   value={gazeDwellMs}
@@ -327,17 +393,7 @@ export function BlockSettingsTopToolbar() {
 
               {/* Save */}
               <button
-                onClick={() => {
-                  console.log("[Gaze:GUI] Save calibration", {
-                    gazeOffsetX,
-                    gazeOffsetY,
-                    gazeMomentumX,
-                    gazeMomentumY,
-                    gazeSmoothing,
-                    gazeDwellMs,
-                    gazeHitRadius,
-                  });
-                }}
+                onClick={() => sendGazeCalibration("save")}
                 style={{
                   width: "100%",
                   padding: "5px 0",

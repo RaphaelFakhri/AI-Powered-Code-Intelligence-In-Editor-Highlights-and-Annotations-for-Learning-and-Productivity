@@ -94,6 +94,19 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   voiceTtsStop: [undefined, void];
   gazeStart: [undefined, void];
   gazeStop: [undefined, void];
+  gazeCalibrate: [
+    {
+      action: "update" | "save";
+      offsetX: number;
+      offsetY: number;
+      momentumX: number;
+      momentumY: number;
+      smoothing: number;
+      dwellMs: number;
+      hitRadius: number;
+    },
+    void,
+  ];
 };
 
 export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
@@ -164,4 +177,13 @@ export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
     void,
   ];
   gazeUpdate: [{ x: number; y: number; valid: boolean }, void];
+  gazeCalibrationSync: [
+    {
+      offsetX: number;
+      offsetY: number;
+      momentumX: number;
+      momentumY: number;
+    },
+    void,
+  ];
 };

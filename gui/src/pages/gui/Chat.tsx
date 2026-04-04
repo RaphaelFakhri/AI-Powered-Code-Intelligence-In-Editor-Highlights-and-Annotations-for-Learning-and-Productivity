@@ -772,12 +772,24 @@ export function Chat() {
   // ─── Gaze: dot + button hover in sidebar webview ────────────────
   const gazeHoverRef = useRef<{ action: string; since: number } | null>(null);
   const gazeDotRef = useRef<HTMLDivElement | null>(null);
-  const GAZE_BUTTON_LINGER_MS = 1500;
-  const GAZE_HIT_RADIUS = 40; // px — generous hit area around buttons
+  const gazeDwellMsRef = useRef(1500);
+  const gazeHitRadiusRef = useRef(40);
 
   // Gaze active tracking
   const [gazeActive, setGazeActive] = useState(false);
   const gazeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Listen for gaze calibration updates from BlockSettingsTopToolbar
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail.dwellMs !== undefined) gazeDwellMsRef.current = detail.dwellMs;
+      if (detail.hitRadius !== undefined)
+        gazeHitRadiusRef.current = detail.hitRadius;
+    };
+    window.addEventListener("gazeCalibrationUpdate", handler);
+    return () => window.removeEventListener("gazeCalibrationUpdate", handler);
+  }, []);
 
   useEffect(() => {
     // Create gaze dot element
@@ -825,7 +837,7 @@ export function Chat() {
           (webviewX - centerX) ** 2 + (webviewY - centerY) ** 2,
         );
         const hitRadius = Math.max(
-          GAZE_HIT_RADIUS,
+          gazeHitRadiusRef.current,
           rect.width / 2,
           rect.height / 2,
         );
@@ -843,7 +855,7 @@ export function Chat() {
       const now = Date.now();
       if (hoveredAction) {
         if (gazeHoverRef.current?.action === hoveredAction) {
-          if (now - gazeHoverRef.current.since >= GAZE_BUTTON_LINGER_MS) {
+          if (now - gazeHoverRef.current.since >= gazeDwellMsRef.current) {
             console.log("[Gaze:GUI] Button triggered:", hoveredAction);
             gazeHoverRef.current = null;
             switch (hoveredAction) {

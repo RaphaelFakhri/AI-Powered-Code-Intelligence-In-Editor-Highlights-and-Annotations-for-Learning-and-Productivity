@@ -73,6 +73,9 @@ export class VsCodeMessenger {
   private gazeOffsetY = 0;
   private gazeMomentumX = 3.0;
   private gazeMomentumY = 1.0;
+  private gazeDwellMs = 1500;
+  private gazeLingerStart: number | null = null;
+  private gazeLingerPos: { x: number; y: number } | null = null;
 
   onWebview<T extends keyof FromWebviewProtocol>(
     messageType: T,
@@ -184,6 +187,18 @@ export class VsCodeMessenger {
     this.onWebview("gazeStop", async () => {
       console.log("[Gaze] onWebview 'gazeStop'");
       this.stopGazeTracking();
+    });
+
+    this.onWebview("gazeCalibrate", async ({ data }) => {
+      console.log(`[Gaze] Calibrate ${data.action}:`, data);
+      this.gazeOffsetX = data.offsetX;
+      this.gazeOffsetY = data.offsetY;
+      this.gazeMomentumX = data.momentumX;
+      this.gazeMomentumY = data.momentumY;
+      this.gazeDwellMs = data.dwellMs;
+      if (data.action === "save") {
+        this.saveGazeCalibration();
+      }
     });
 
     this.onWebview("acceptDiff", async ({ data: { filepath, streamId } }) => {
@@ -2029,6 +2044,13 @@ Return ONLY valid JSON.`;
       "continue.gazeActive",
       true,
     );
+    // Send current calibration to webview so sliders initialize correctly
+    this.webviewProtocol.send("gazeCalibrationSync", {
+      offsetX: this.gazeOffsetX,
+      offsetY: this.gazeOffsetY,
+      momentumX: this.gazeMomentumX,
+      momentumY: this.gazeMomentumY,
+    });
     console.log("[Gaze] Process spawned, pid:", this.gazeProcess.pid);
 
     this.gazeProcess.stdout.on("data", (chunk: Buffer) => {
@@ -2090,29 +2112,51 @@ Return ONLY valid JSON.`;
 
   private relayGazeLine(line: string) {
     if (!line) return;
-    if (line.startsWith("GAZE_LINGER:")) {
-      try {
-        const data = JSON.parse(line.slice("GAZE_LINGER:".length));
-        const [adjX, adjY] = this.applyGazeCalibration(data.x, data.y);
-        console.log(
-          `[Gaze] Linger: raw=(${data.x.toFixed(3)},${data.y.toFixed(3)}) adj=(${adjX.toFixed(3)},${adjY.toFixed(3)})`,
-        );
-        this.handleGazeLinger(adjX, adjY);
-      } catch (e: any) {
-        console.log("[Gaze] Parse linger failed:", e.message);
-      }
-    } else if (line.startsWith("GAZE:")) {
+    // Ignore C# linger — we do our own dwell detection using the slider's dwellMs
+    if (line.startsWith("GAZE_LINGER:")) return;
+
+    if (line.startsWith("GAZE:")) {
       try {
         const data = JSON.parse(line.slice("GAZE:".length));
         if (data.valid) {
           const [adjX, adjY] = this.applyGazeCalibration(data.x, data.y);
           this.updateGazeDot(adjY);
-          // Forward to webview so GUI buttons can react to gaze
           this.webviewProtocol.send("gazeUpdate", {
             x: adjX,
             y: adjY,
             valid: true,
           });
+
+          // Dwell detection: stable gaze within tolerance triggers linger
+          const now = Date.now();
+          const tolerance = 0.12; // ~12% of screen — generous for webcam jitter
+          if (
+            this.gazeLingerPos &&
+            Math.abs(adjX - this.gazeLingerPos.x) < tolerance &&
+            Math.abs(adjY - this.gazeLingerPos.y) < tolerance
+          ) {
+            // Smooth the position while dwelling
+            this.gazeLingerPos.x = this.gazeLingerPos.x * 0.8 + adjX * 0.2;
+            this.gazeLingerPos.y = this.gazeLingerPos.y * 0.8 + adjY * 0.2;
+            if (
+              this.gazeLingerStart &&
+              now - this.gazeLingerStart >= this.gazeDwellMs
+            ) {
+              console.log(
+                `[Gaze] Dwell triggered (${this.gazeDwellMs}ms) at (${adjX.toFixed(3)},${adjY.toFixed(3)})`,
+              );
+              this.handleGazeLinger(this.gazeLingerPos.x, this.gazeLingerPos.y);
+              this.gazeLingerStart = null;
+              this.gazeLingerPos = null;
+            }
+          } else {
+            this.gazeLingerStart = now;
+            this.gazeLingerPos = { x: adjX, y: adjY };
+          }
+        } else {
+          // Invalid gaze breaks dwell
+          this.gazeLingerStart = null;
+          this.gazeLingerPos = null;
         }
       } catch {}
     }
