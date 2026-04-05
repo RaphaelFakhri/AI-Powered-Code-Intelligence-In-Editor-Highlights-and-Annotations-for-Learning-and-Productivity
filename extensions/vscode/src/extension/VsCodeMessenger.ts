@@ -2247,108 +2247,208 @@ Return ONLY valid JSON.`;
     const clampedLine = line;
     console.log(`[Gaze] Linger at dot line=${clampedLine}`);
 
-    // Find which function contains this line
     const doc = editor.document;
     const text = doc.getText();
     const lines = text.split(/\r?\n/);
 
-    // Parse functions: look for function-like patterns and track brace depth
-    const functions: { name: string; startLine: number; endLine: number }[] =
-      [];
-    const funcPattern =
-      /(?:function\s+(\w+)|(\w+)\s*\(.*\)\s*\{|(\w+)\s*=\s*(?:function|\(.*\)\s*=>))/;
-    let currentFunc: {
-      name: string;
-      startLine: number;
-      braceDepth: number;
-    } | null = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      if (!currentFunc) {
-        const match = lines[i].match(funcPattern);
-        if (match) {
-          const name = match[1] || match[2] || match[3] || "anonymous";
-          currentFunc = { name, startLine: i, braceDepth: 0 };
-        }
-      }
-      if (currentFunc) {
-        for (const ch of lines[i]) {
-          if (ch === "{") currentFunc.braceDepth++;
-          if (ch === "}") currentFunc.braceDepth--;
-        }
-        if (currentFunc.braceDepth <= 0 && lines[i].includes("}")) {
-          functions.push({
-            name: currentFunc.name,
-            startLine: currentFunc.startLine,
-            endLine: i,
-          });
-          currentFunc = null;
-        }
-      }
-    }
-
+    const blocks = this.parseGazeBlocks(lines);
     console.log(
       "[Gaze] Found",
-      functions.length,
-      "functions:",
-      functions
-        .map((f) => `${f.name}(${f.startLine + 1}-${f.endLine + 1})`)
+      blocks.length,
+      "blocks:",
+      blocks
+        .map((b) => `${b.kind}:${b.name}(${b.startLine + 1}-${b.endLine + 1})`)
         .join(", "),
     );
 
-    // Find which function the gaze line falls in, or snap to nearest
-    let gazeFunc = functions.find(
-      (f) => clampedLine >= f.startLine && clampedLine <= f.endLine,
+    // Find innermost block containing the gaze line
+    const containing = blocks.filter(
+      (b) => clampedLine >= b.startLine && clampedLine <= b.endLine,
     );
-    if (!gazeFunc && functions.length > 0) {
+    containing.sort(
+      (a, b) => a.endLine - a.startLine - (b.endLine - b.startLine),
+    );
+    let target: GazeBlock | undefined = containing[0];
+
+    // Promote to enclosing class when:
+    //  - the innermost block is a constructor (gaze on class via its ctor), or
+    //  - the gaze line is a class's own declaration header line.
+    if (target) {
+      if (target.kind === "function" && target.isConstructor) {
+        let p = target.parent;
+        while (p && p.kind !== "class") p = p.parent;
+        if (p) {
+          console.log(
+            `[Gaze] Promoting constructor → enclosing class ${p.name}`,
+          );
+          target = p;
+        }
+      } else if (target.kind === "class" && clampedLine === target.startLine) {
+        // Already the class — nothing to do, just log clearly.
+        console.log(
+          `[Gaze] Gaze landed on class declaration line of ${target.name}`,
+        );
+      }
+    }
+
+    // Nothing contained the line — snap to nearest block (class or function)
+    if (!target && blocks.length > 0) {
       let minDist = Infinity;
-      for (const f of functions) {
+      for (const b of blocks) {
         const dist =
-          clampedLine < f.startLine
-            ? f.startLine - clampedLine
-            : clampedLine - f.endLine;
+          clampedLine < b.startLine
+            ? b.startLine - clampedLine
+            : clampedLine - b.endLine;
         if (dist < minDist) {
           minDist = dist;
-          gazeFunc = f;
+          target = b;
         }
       }
-      console.log(
-        `[Gaze] Snapped to nearest function: ${gazeFunc!.name} (${minDist} lines away)`,
-      );
-    }
-
-    if (gazeFunc) {
-      console.log(
-        "[Gaze] Selecting function:",
-        gazeFunc.name,
-        "lines",
-        gazeFunc.startLine + 1,
-        "-",
-        gazeFunc.endLine + 1,
-      );
-
-      // Avoid re-selecting the same function repeatedly
-      const selKey = `${gazeFunc.startLine}-${gazeFunc.endLine}`;
-      if ((this as any)._lastGazeSelection === selKey) {
-        console.log("[Gaze] Same function already selected, skipping");
-        return;
+      if (target) {
+        console.log(
+          `[Gaze] Snapped to nearest ${target.kind}: ${target.name} (${minDist} lines away)`,
+        );
       }
-      (this as any)._lastGazeSelection = selKey;
-
-      const range = new vscode.Range(
-        new vscode.Position(gazeFunc.startLine, 0),
-        new vscode.Position(
-          gazeFunc.endLine,
-          lines[gazeFunc.endLine]?.length ?? 0,
-        ),
-      );
-      editor.selection = new vscode.Selection(range.start, range.end);
-      editor.revealRange(
-        range,
-        vscode.TextEditorRevealType.InCenterIfOutsideViewport,
-      );
-    } else {
-      console.log("[Gaze] No function at line", clampedLine);
     }
+
+    if (!target) {
+      console.log("[Gaze] No block at line", clampedLine);
+      return;
+    }
+
+    console.log(
+      `[Gaze] Selecting ${target.kind}:`,
+      target.name,
+      "lines",
+      target.startLine + 1,
+      "-",
+      target.endLine + 1,
+    );
+
+    // Avoid re-selecting the same block repeatedly
+    const selKey = `${target.kind}:${target.startLine}-${target.endLine}`;
+    if ((this as any)._lastGazeSelection === selKey) {
+      console.log("[Gaze] Same block already selected, skipping");
+      return;
+    }
+    (this as any)._lastGazeSelection = selKey;
+
+    const range = new vscode.Range(
+      new vscode.Position(target.startLine, 0),
+      new vscode.Position(target.endLine, lines[target.endLine]?.length ?? 0),
+    );
+    editor.selection = new vscode.Selection(range.start, range.end);
+    editor.revealRange(
+      range,
+      vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+    );
+  }
+
+  // Parse top-level + nested classes and functions/methods from a brace-based
+  // source file. Returns blocks with parent links so callers can promote
+  // constructors to their enclosing class.
+  private parseGazeBlocks(lines: string[]): GazeBlock[] {
+    const classPat = /\b(?:class|interface|struct|enum|trait|record)\s+(\w+)/;
+    // Function forms: `function foo(...)`, `foo(...) {` (methods), `foo = function|arrow`.
+    const funcPat =
+      /(?:function\s+(\w+)|(\w+)\s*\([^)]*\)\s*(?::\s*\S.*?)?\{|(\w+)\s*=\s*(?:function|\([^)]*\)\s*=>))/;
+    // Words that look like "name(" but are control-flow keywords, not functions.
+    const KEYWORDS = new Set([
+      "if",
+      "for",
+      "while",
+      "switch",
+      "catch",
+      "return",
+      "do",
+      "else",
+      "function",
+      "new",
+      "await",
+      "yield",
+      "throw",
+      "typeof",
+    ]);
+
+    type Candidate = Omit<GazeBlock, "endLine" | "parent">;
+    const candidates: Candidate[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const cm = line.match(classPat);
+      if (cm) {
+        candidates.push({
+          kind: "class",
+          name: cm[1],
+          startLine: i,
+          isConstructor: false,
+        });
+        continue; // don't also match as function on the same line
+      }
+      const fm = line.match(funcPat);
+      if (fm) {
+        const name = fm[1] || fm[2] || fm[3] || "anonymous";
+        if (KEYWORDS.has(name)) continue;
+        candidates.push({
+          kind: "function",
+          name,
+          startLine: i,
+          isConstructor: name === "constructor" || name === "__init__",
+        });
+      }
+    }
+
+    // Resolve endLine for each candidate via brace tracking from its startLine.
+    const blocks: GazeBlock[] = candidates.map((c) => ({
+      ...c,
+      endLine: this.findBraceBlockEnd(lines, c.startLine),
+      parent: null,
+    }));
+
+    // Assign parent as the innermost other block that strictly contains this one.
+    for (const b of blocks) {
+      let bestParent: GazeBlock | null = null;
+      for (const p of blocks) {
+        if (p === b) continue;
+        if (p.startLine <= b.startLine && b.endLine <= p.endLine) {
+          if (
+            !bestParent ||
+            (p.startLine >= bestParent.startLine &&
+              p.endLine <= bestParent.endLine)
+          ) {
+            bestParent = p;
+          }
+        }
+      }
+      b.parent = bestParent;
+    }
+
+    return blocks;
+  }
+
+  private findBraceBlockEnd(lines: string[], startLine: number): number {
+    let depth = 0;
+    let started = false;
+    for (let i = startLine; i < lines.length; i++) {
+      for (const ch of lines[i]) {
+        if (ch === "{") {
+          depth++;
+          started = true;
+        } else if (ch === "}") {
+          depth--;
+        }
+      }
+      if (started && depth <= 0) return i;
+    }
+    return Math.min(startLine + 50, lines.length - 1);
   }
 }
+
+type GazeBlock = {
+  kind: "class" | "function";
+  name: string;
+  startLine: number;
+  endLine: number;
+  isConstructor: boolean;
+  parent: GazeBlock | null;
+};
