@@ -568,34 +568,86 @@ export function Chat() {
             break;
           }
           console.log(
-            "[Voice:Chat] looking for function:",
+            "[Voice:Chat] looking for function/class:",
             intent.functionName,
           );
-          // Use simple text search to find function boundaries
           const lines = (currentFile.contents ?? "").split(/\r?\n/);
-          let funcStart = -1;
-          let funcEnd = -1;
-          let braceDepth = 0;
-          const namePattern = new RegExp(
-            `\\b${intent.functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+          const escaped = intent.functionName.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
           );
-          for (let i = 0; i < lines.length; i++) {
-            if (funcStart === -1 && namePattern.test(lines[i])) {
-              funcStart = i;
-            }
-            if (funcStart !== -1) {
-              for (const ch of lines[i]) {
-                if (ch === "{") braceDepth++;
-                if (ch === "}") braceDepth--;
-              }
-              if (braceDepth <= 0 && lines[i].includes("}")) {
-                funcEnd = i;
+          // Prioritized patterns: strong declarations first, fall back to any
+          // occurrence. Case-insensitive so "Calculator" matches regardless
+          // of how the voice transcript capitalized it.
+          const declPatterns: RegExp[] = [
+            new RegExp(
+              `\\b(?:class|interface|struct|enum|trait|record)\\s+${escaped}\\b`,
+              "i",
+            ),
+            new RegExp(`\\b(?:function|func|fn|def|sub)\\s+${escaped}\\b`, "i"),
+            new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\s*[:=]`, "i"),
+            new RegExp(`\\b${escaped}\\s*\\(`, "i"),
+            new RegExp(`\\b${escaped}\\b`, "i"),
+          ];
+          let funcStart = -1;
+          for (const pat of declPatterns) {
+            for (let i = 0; i < lines.length; i++) {
+              if (pat.test(lines[i])) {
+                funcStart = i;
                 break;
+              }
+            }
+            if (funcStart !== -1) break;
+          }
+
+          let funcEnd = -1;
+          if (funcStart !== -1) {
+            const startLine = lines[funcStart];
+            // Decide brace-based vs indent-based by looking for an opening
+            // brace on the declaration line or the immediately following line.
+            const openOnThis = startLine.includes("{");
+            const openOnNext =
+              funcStart + 1 < lines.length &&
+              /^\s*\{/.test(lines[funcStart + 1]);
+            const hasBraces = openOnThis || openOnNext;
+
+            if (hasBraces) {
+              let depth = 0;
+              let started = false;
+              for (let i = funcStart; i < lines.length; i++) {
+                for (const ch of lines[i]) {
+                  if (ch === "{") {
+                    depth++;
+                    started = true;
+                  } else if (ch === "}") {
+                    depth--;
+                  }
+                }
+                if (started && depth <= 0) {
+                  funcEnd = i;
+                  break;
+                }
+              }
+            } else {
+              // Indent-based block (Python, YAML-ish, etc.): scan until we
+              // hit a line with indent ≤ declaration indent.
+              const baseIndent = (startLine.match(/^\s*/)?.[0] ?? "").length;
+              funcEnd = lines.length - 1;
+              for (let i = funcStart + 1; i < lines.length; i++) {
+                if (lines[i].trim() === "") continue;
+                const indent = (lines[i].match(/^\s*/)?.[0] ?? "").length;
+                if (indent <= baseIndent) {
+                  funcEnd = i - 1;
+                  break;
+                }
+              }
+              while (funcEnd > funcStart && lines[funcEnd].trim() === "") {
+                funcEnd--;
               }
             }
           }
           if (funcStart !== -1) {
-            if (funcEnd === -1)
+            if (funcEnd === -1 || funcEnd < funcStart)
               funcEnd = Math.min(funcStart + 20, lines.length - 1);
             console.log(
               "[Voice:Chat] found function at lines",

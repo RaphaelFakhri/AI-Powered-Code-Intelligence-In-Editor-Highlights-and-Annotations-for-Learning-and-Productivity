@@ -1099,10 +1099,8 @@ export class VsCodeMessenger {
   private tryLocalVoiceClassify(
     transcript: string,
   ): Record<string, unknown> | null {
-    const text = transcript
-      .trim()
-      .toLowerCase()
-      .replace(/[.,!?]+/g, "");
+    const original = transcript.trim().replace(/[.,!?]+/g, "");
+    const text = original.toLowerCase();
     if (!text) return null;
 
     // ── Line selection (ported from gui/src/utils/voiceCommandParser.ts) ──
@@ -1149,12 +1147,14 @@ export class VsCodeMessenger {
     }
 
     // ── "select [the] X function" / "select function X" ──
+    // Match against `original` (preserves case) with /i so names like
+    // "Calculator" survive as "Calculator" rather than "calculator".
     const funcPatterns = [
-      /(?:select|highlight)\s+(?:the\s+)?(\w+)\s+(?:function|method|class)/,
-      /(?:select|highlight)\s+(?:function|method|class)\s+(\w+)/,
+      /(?:select|highlight)\s+(?:the\s+)?(\w+)\s+(?:function|method|class)/i,
+      /(?:select|highlight)\s+(?:function|method|class)\s+(\w+)/i,
     ];
     for (const pattern of funcPatterns) {
-      const match = text.match(pattern);
+      const match = original.match(pattern);
       if (match?.[1]) {
         return { action: "select_function", functionName: match[1] };
       }
