@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #1a1a2e;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    height: 297mm;
+    width: 210mm;
+    padding: 18px 24px;
+    overflow: hidden;
+  }
+  .container {
+    background: rgba(255,255,255,0.97);
+    border-radius: 16px;
+    padding: 28px 36px 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 3px solid #302b63;
+  }
+  .header h1 {
+    font-size: 24px;
+    color: #302b63;
+    letter-spacing: -0.5px;
+    margin-bottom: 3px;
+  }
+  .header .subtitle {
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
+  }
+  .badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #302b63, #24243e);
+    color: white;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .section {
+    margin-bottom: 14px;
+  }
+  .section h2 {
+    font-size: 13.5px;
+    color: #302b63;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .section h2 .icon { font-size: 16px; }
+  p, li {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #333;
+  }
+  ul { padding-left: 18px; margin-top: 4px; }
+  li { margin-bottom: 2px; }
+  .exercise-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+    font-size: 11.5px;
+  }
+  .exercise-table th {
+    background: #302b63;
+    color: white;
+    padding: 6px 12px;
+    text-align: left;
+    font-weight: 600;
+  }
+  .exercise-table th:first-child { border-radius: 6px 0 0 0; }
+  .exercise-table th:last-child { border-radius: 0 6px 0 0; }
+  .exercise-table td {
+    padding: 5px 12px;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  .exercise-table tr:last-child td { border-bottom: none; }
+  .exercise-table tr:nth-child(even) { background: #f8f7ff; }
+  .diff-easy { color: #2d8a4e; font-weight: 600; }
+  .diff-med { color: #b8860b; font-weight: 600; }
+  .diff-hard { color: #c0392b; font-weight: 600; }
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .tool-card {
+    background: #f8f7ff;
+    border: 1px solid #e0ddf5;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .tool-card h3 {
+    font-size: 11.5px;
+    color: #302b63;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tool-card p { font-size: 10.5px; line-height: 1.45; color: #555; }
+  .voice-table {
+    width: 100%;
+    font-size: 10.5px;
+    margin-top: 4px;
+    border-collapse: collapse;
+  }
+  .voice-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+  }
+  .voice-table td:first-child {
+    font-family: 'Consolas', 'Courier New', monospace;
+    color: #302b63;
+    font-weight: 600;
+    white-space: nowrap;
+    width: 50%;
+  }
+  .callout {
+    background: linear-gradient(135deg, #f0eeff, #e8e5ff);
+    border-left: 4px solid #302b63;
+    border-radius: 0 8px 8px 0;
+    padding: 10px 14px;
+  }
+  .callout p { font-size: 11px; color: #302b63; }
+  .footer {
+    text-align: center;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 2px solid #eee;
+  }
+  .footer p {
+    font-size: 11px;
+    color: #888;
+  }
+  .start-btn {
+    display: inline-block;
+    background: linear-gradient(135deg, #302b63, #24243e);
+    color: white;
+    padding: 10px 30px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-top: 8px;
+    text-decoration: none;
+  }
+  .highlight { color: #302b63; font-weight: 600; }
+  code {
+    background: #f0eeff;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10.5px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    color: #302b63;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="badge">Thesis User Study</div>
+    <h1>Welcome to rjf11's Thesis Exercises</h1>
+    <p class="subtitle">AI-Powered Code Intelligence &mdash; In-Editor Highlights &amp; Annotations</p>
+  </div>
+
+  <div class="section">
+    <h2><span class="icon">&#128075;</span> Before We Begin</h2>
+    <p>Thank you for being here! Your participation is genuinely valuable and helps advance research in how developers learn and work with code.</p>
+    <ul>
+      <li>Please <span class="highlight">remain seated</span> and commit to the full session so we can gather reliable data.</li>
+      <li>Try to <span class="highlight">complete each exercise in one go</span> before moving to the next.</li>
+      <li>If you ever need a break, just let Raphael know &mdash; no pressure at all.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2><span class="icon">&#128221;</span> The Exercises</h2>
+    <p>You'll work through <strong>3 Python exercises</strong>, each in its own folder with a task description, starter file, and reference images.</p>
+    <table class="exercise-table">
+      <tr><th>#</th><th>Folder</th><th>Topic</th><th>Difficulty</th></tr>
+      <tr><td>1</td><td><code>1 - Charts and Plots</code></td><td>Data Visualization (Seaborn)</td><td class="diff-easy">Easy</td></tr>
+      <tr><td>2</td><td><code>2 - Image Manipulation</code></td><td>Image Processing (Pillow)</td><td class="diff-med">Medium</td></tr>
+      <tr><td>3</td><td><code>3 - Network Visualization</code></td><td>Network Graphs (NetworkX)</td><td class="diff-hard">Hard</td></tr>
+    </table>
+    <p style="margin-top:5px; font-size:10.5px; color:#666;">You are free to browse the web if needed, though the exercises are designed to be self-contained.</p>
+  </div>
+
+  <div class="section">
+    <h2><span class="icon">&#128296;</span> The Tool</h2>
+    <p>You have access to a <span class="highlight">code intelligence tool</span> built into this editor. The goal of this study is to explore whether it helps you feel more productive, understand code better, and stay focused compared to traditional coding or commercial AI tools you may have used.</p>
+
+    <div class="tool-grid">
+      <div class="tool-card">
+        <h3>&#9997;&#65039; Selection + Overview</h3>
+        <p><strong>Select</strong> any code, then click <strong>"Get Started"</strong>. The tool generates an overview of your selection. From there:</p>
+        <p style="margin-top:3px;"><strong>Embed Inline</strong> &mdash; adds the overview as a code comment<br>
+        <strong>API</strong> &mdash; function signatures &amp; parameters<br>
+        <strong>Concept</strong> &mdash; explains what the function does<br>
+        <strong>Usage</strong> &mdash; how it's typically used</p>
+      </div>
+      <div class="tool-card">
+        <h3>&#127908; Voice Mode</h3>
+        <p>Toggle the <strong>voice button</strong> on, then speak naturally:</p>
+        <table class="voice-table">
+          <tr><td>"Select lines 7 to 11"</td><td>Select a range</td></tr>
+          <tr><td>"Select function calc"</td><td>Select a function</td></tr>
+          <tr><td>"Give me an overview"</td><td>Get an AI overview</td></tr>
+          <tr><td>"API" / "Concept"</td><td>Get specific details</td></tr>
+          <tr><td>Any question</td><td>Ask anything freely</td></tr>
+        </table>
+      </div>
+      <div class="tool-card" style="grid-column: span 2;">
+        <h3>&#128065;&#65039; Gaze Mode</h3>
+        <p>Toggle <strong>gaze mode</strong> on, then simply look at the code. <strong>Look at a function</strong> long enough and it will be automatically selected. <strong>Look at the "Get Started" button</strong> to trigger an overview. A natural, hands-free way to explore and understand code.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="callout">
+      <p><strong>Tip:</strong> Start each exercise by reading the task <code>.md</code> file. The starter <code>.py</code> file has scaffolding to get you going, and the reference images show expected output. If anything is unclear, don't hesitate to ask Raphael!</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Take a breath, get comfortable, and whenever you're ready&hellip;</p>
+    <div class="start-btn">Open &ldquo;1 - Charts and Plots&rdquo; to begin your first exercise</div>
+    <p style="margin-top: 10px; font-size: 10px; color: #aaa;">Thank you for your time and contribution.</p>
+  </div>
+
+</div>
+</body>
+</html>
