@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */
+import * as child_process from "node:child_process";
 import * as fs from "node:fs";
 
 import { ContextMenuConfig, ILLM, ModelInstaller } from "core";
@@ -183,6 +184,24 @@ const getCommandsMap: (
   }
 
   return {
+    "continue.runPythonFile": async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !editor.document.fileName.endsWith(".py")) {
+        return;
+      }
+      const filePath = editor.document.fileName;
+      await editor.document.save();
+      child_process.exec(
+        `python3 "${filePath}"`,
+        { cwd: require("path").dirname(filePath) },
+        (err) => {
+          if (err) {
+            vscode.window.showErrorMessage(`Python error: ${err.message}`);
+          }
+        },
+      );
+    },
+
     "continue.acceptDiff": async (newFileUri?: string, streamId?: string) => {
       captureCommandTelemetry("acceptDiff");
       void processDiff(

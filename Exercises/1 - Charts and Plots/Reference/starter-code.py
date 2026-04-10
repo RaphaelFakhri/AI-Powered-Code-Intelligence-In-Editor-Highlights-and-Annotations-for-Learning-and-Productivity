@@ -1,7 +1,10 @@
+import os
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+_dir = os.path.dirname(os.path.abspath(__file__))
 
 subjects = ["Mathematics", "Physics", "Literature", "History"]
 
@@ -76,5 +79,6 @@ sns.despine(left=False, bottom=False)
 fig.suptitle("Student Exam Score Distributions by School",
              fontsize=18, fontweight="bold", y=1.01)
 plt.tight_layout()
-plt.savefig("seaborn_output.png", dpi=150, bbox_inches="tight")
-plt.show()
+_out = os.path.join(_dir, "output.png")
+plt.savefig(_out, dpi=150, bbox_inches="tight")
+os.system(f'code "{_out}"')

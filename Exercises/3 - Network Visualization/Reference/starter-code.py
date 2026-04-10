@@ -1,7 +1,10 @@
+import os
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 from networkx.algorithms.community import louvain_communities
+
+_dir = os.path.dirname(os.path.abspath(__file__))
 
 G = nx.karate_club_graph()
 
@@ -63,5 +66,6 @@ ax2.set_title("Ego Network of Node 0 (Mr. Hi)",
 ax2.axis("on")
 
 plt.tight_layout()
-plt.savefig("networkx_output.png", dpi=150, bbox_inches="tight")
-plt.show()
+_out = os.path.join(_dir, "output.png")
+plt.savefig(_out, dpi=150, bbox_inches="tight")
+os.system(f'code "{_out}"')

@@ -1,4 +1,7 @@
+import os
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
+
+_dir = os.path.dirname(os.path.abspath(__file__))
 
 teams = [
     {"name": "Alpha Team", "members": 12, "color": (33, 150, 243)},
@@ -51,5 +54,6 @@ for i, team in enumerate(teams):
 
 canvas = canvas.filter(ImageFilter.GaussianBlur(radius=3))
 
-canvas.save("pillow_output.png")
-print(f"Saved pillow_output.png ({canvas.size[0]}x{canvas.size[1]})")
+_out = os.path.join(_dir, "output.png")
+canvas.save(_out)
+os.system(f'code "{_out}"')

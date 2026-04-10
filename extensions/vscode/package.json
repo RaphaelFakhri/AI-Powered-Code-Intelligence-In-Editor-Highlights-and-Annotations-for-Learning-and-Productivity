@@ -152,6 +152,11 @@
     },
     "commands": [
       {
+        "command": "continue.runPythonFile",
+        "category": "Continue",
+        "title": "▶ Run File & See Output"
+      },
+      {
         "command": "continue.applyCodeFromChat",
         "category": "Continue",
         "title": "Apply code from chat",
@@ -629,9 +634,26 @@
       ],
       "editor/title/run": [
         {
+          "command": "continue.runPythonFile",
+          "group": "navigation@0",
+          "when": "resourceLangId == python"
+        },
+        {
           "command": "continue.rejectDiff",
           "group": "Continue",
           "when": "continue.streamingDiff"
+        },
+        {
+          "command": "python.execInTerminal-icon",
+          "when": "false"
+        },
+        {
+          "command": "python.execInDedicatedTerminal",
+          "when": "false"
+        },
+        {
+          "command": "python.debugInTerminal",
+          "when": "false"
         }
       ],
       "continue.continueSubMenu": [

@@ -1,0 +1,7 @@
+{
+  "python.terminal.executeInFileDir": true,
+  "python.showRunButton": false,
+  "testing.showRunButton": false,
+  "debug.showInlineBreakpointCandidates": false,
+  "editor.runButton.enabled": false
+}
