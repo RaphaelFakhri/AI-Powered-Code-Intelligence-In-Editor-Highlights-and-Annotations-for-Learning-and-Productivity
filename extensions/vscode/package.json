@@ -154,7 +154,7 @@
       {
         "command": "continue.runPythonFile",
         "category": "Continue",
-        "title": "▶ Run File & See Output"
+        "title": "▶▶  𝗥𝗨𝗡 𝗙𝗜𝗟𝗘 & 𝗦𝗘𝗘 𝗢𝗨𝗧𝗣𝗨𝗧  ◀◀"
       },
       {
         "command": "continue.applyCodeFromChat",

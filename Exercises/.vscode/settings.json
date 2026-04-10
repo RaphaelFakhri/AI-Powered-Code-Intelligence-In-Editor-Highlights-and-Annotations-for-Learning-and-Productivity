@@ -3,5 +3,6 @@
   "python.showRunButton": false,
   "testing.showRunButton": false,
   "debug.showInlineBreakpointCandidates": false,
-  "editor.runButton.enabled": false
+  "editor.runButton.enabled": false,
+  "window.zoomLevel": 1
 }
