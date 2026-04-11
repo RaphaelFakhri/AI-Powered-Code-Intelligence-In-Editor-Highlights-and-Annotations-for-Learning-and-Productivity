@@ -186,7 +186,7 @@ ws.on("open", () => {
     "C:\\Users\\rfakhri\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1-full_build\\bin\\ffmpeg.exe",
     [
       "-loglevel",
-      "error",
+      "warning",
       "-f",
       "dshow", // Windows DirectShow
       "-i",
@@ -203,14 +203,50 @@ ws.on("open", () => {
     ],
   );
 
+  let totalAudioBytes = 0;
+  let chunkCount = 0;
+  let lastAudioLogTime = Date.now();
+  let maxAmplitudeInWindow = 0;
+
   ffmpegProcess.stdout.on("data", (chunk) => {
+    chunkCount++;
+    totalAudioBytes += chunk.length;
+
+    // Compute peak amplitude in this chunk (16-bit signed PCM)
+    for (let i = 0; i + 1 < chunk.length; i += 2) {
+      const sample = chunk.readInt16LE(i);
+      const abs = Math.abs(sample);
+      if (abs > maxAmplitudeInWindow) maxAmplitudeInWindow = abs;
+    }
+
     if (ws && ws.readyState === WebSocketImpl.OPEN) {
       ws.send(chunk);
+    } else {
+      console.log(
+        `[AUDIO] WS not open (state=${ws?.readyState}), dropping ${chunk.length} bytes`,
+      );
+    }
+
+    // Log audio stats every 2 seconds
+    const now = Date.now();
+    if (now - lastAudioLogTime >= 2000) {
+      const peakPct = ((maxAmplitudeInWindow / 32768) * 100).toFixed(1);
+      console.log(
+        `[AUDIO] chunks=${chunkCount} bytes=${totalAudioBytes} peak_amplitude=${maxAmplitudeInWindow}/32768 (${peakPct}%)`,
+      );
+      if (maxAmplitudeInWindow < 100) {
+        console.log(
+          `[AUDIO] WARNING: peak amplitude is very low — mic may be muted or wrong device`,
+        );
+      }
+      lastAudioLogTime = now;
+      maxAmplitudeInWindow = 0;
     }
   });
 
   ffmpegProcess.stderr.on("data", (data) => {
-    console.error("[ffmpeg stderr]", data.toString("utf8").trim());
+    const text = data.toString("utf8").trim();
+    if (text) console.log("[ffmpeg]", text);
   });
 
   ffmpegProcess.on("close", (code) => {
@@ -230,15 +266,35 @@ ws.on("open", () => {
   console.log();
 });
 
+let dgMessageCount = 0;
 ws.on("message", (data) => {
-  const result = JSON.parse(data);
+  dgMessageCount++;
+  let result;
+  try {
+    result = JSON.parse(data);
+  } catch (e) {
+    console.log("[DG] non-JSON message:", data.toString().slice(0, 200));
+    return;
+  }
 
-  if (result.channel?.alternatives?.[0]?.transcript) {
-    const transcript = result.channel.alternatives[0].transcript;
+  // Log every message type so we can see what Deepgram is doing
+  if (dgMessageCount <= 3 || dgMessageCount % 20 === 0) {
+    console.log(
+      `[DG] msg #${dgMessageCount} type=${result.type || "transcript"} keys=${Object.keys(result).join(",")}`,
+    );
+  }
+
+  if (result.channel?.alternatives?.[0]) {
+    const transcript = result.channel.alternatives[0].transcript || "";
     const isFinal = result.is_final;
+    const speechFinal = result.speech_final;
+
+    // Log every transcript, even empty/interim, to see Deepgram's view of audio
+    console.log(
+      `[DG] transcript="${transcript}" is_final=${isFinal} speech_final=${speechFinal}`,
+    );
 
     if (transcript.trim()) {
-      // Any speech resets the idle timer
       lastTranscriptTime = new Date();
       resetIdleTimer();
     }

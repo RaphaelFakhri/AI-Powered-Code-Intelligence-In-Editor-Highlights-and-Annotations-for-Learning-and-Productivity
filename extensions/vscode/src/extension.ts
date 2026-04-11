@@ -8,6 +8,7 @@ import { Telemetry } from "core/util/posthog";
 import * as vscode from "vscode";
 
 import { SentryLogger } from "core/util/sentry/SentryLogger";
+import { SessionLogger } from "./research/SessionLogger";
 import { getExtensionVersion } from "./util/util";
 export { default as buildTimestamp } from "./.buildTimestamp";
 
@@ -57,6 +58,9 @@ export function deactivate() {
     },
     true,
   );
+
+  // End research session and flush log
+  SessionLogger.get()?.endSession("deactivate");
 
   Telemetry.shutdownPosthogClient();
   SentryLogger.shutdownSentryClient();

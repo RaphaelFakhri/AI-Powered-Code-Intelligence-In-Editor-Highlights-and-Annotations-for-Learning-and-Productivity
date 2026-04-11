@@ -29,6 +29,7 @@ import { ApplyManager } from "../apply";
 import { VerticalDiffManager } from "../diff/vertical/manager";
 import { addCurrentSelectionToEdit } from "../quickEdit/AddCurrentSelection";
 import EditDecorationManager from "../quickEdit/EditDecorationManager";
+import { logEvent, SessionLogger } from "../research/SessionLogger";
 import {
   getControlPlaneSessionInfo,
   WorkOsAuthProvider,
@@ -161,6 +162,7 @@ export class VsCodeMessenger {
       console.log(
         "[Voice] onWebview 'voiceSelectionStart' received from webview",
       );
+      logEvent("voice", "voice_toggle_on");
       await this.startVoiceSelection();
     });
 
@@ -168,6 +170,7 @@ export class VsCodeMessenger {
       console.log(
         "[Voice] onWebview 'voiceSelectionStop' received from webview",
       );
+      logEvent("voice", "voice_toggle_off");
       this.stopVoiceSelection();
     });
 
@@ -176,20 +179,42 @@ export class VsCodeMessenger {
         "[Voice] onWebview 'voiceTtsSpeak', text length:",
         data.text.length,
       );
+      logEvent("voice", "tts_speak", { text_length: data.text.length });
       await this.speakTts(data.text);
     });
 
     this.onWebview("voiceTtsStop", async () => {
       console.log("[Voice] onWebview 'voiceTtsStop'");
+      logEvent("voice", "tts_stop");
+    });
+
+    // Research telemetry: forward log events from the webview (button clicks,
+    // intent dispatching results, etc.) into the SessionLogger.
+    this.onWebview("researchLogEvent", async ({ data }) => {
+      try {
+        logEvent(data.category as any, data.event, data.data);
+      } catch (e) {
+        console.error("[Research] Failed to log webview event:", e);
+      }
     });
 
     this.onWebview("gazeStart", async () => {
       console.log("[Gaze] onWebview 'gazeStart'");
+      logEvent("gaze", "gaze_toggle_on", {
+        offsetX: this.gazeOffsetX,
+        offsetY: this.gazeOffsetY,
+        momentumX: this.gazeMomentumX,
+        momentumY: this.gazeMomentumY,
+        dwellMs: this.gazeDwellMs,
+        smoothing: this.gazeSmoothing,
+        hitRadius: this.gazeHitRadius,
+      });
       await this.startGazeTracking();
     });
 
     this.onWebview("gazeStop", async () => {
       console.log("[Gaze] onWebview 'gazeStop'");
+      logEvent("gaze", "gaze_toggle_off");
       this.stopGazeTracking();
     });
 
@@ -202,6 +227,16 @@ export class VsCodeMessenger {
       this.gazeDwellMs = data.dwellMs;
       this.gazeSmoothing = data.smoothing;
       this.gazeHitRadius = data.hitRadius;
+      logEvent("gaze", "calibration_change", {
+        action: data.action,
+        offsetX: data.offsetX,
+        offsetY: data.offsetY,
+        momentumX: data.momentumX,
+        momentumY: data.momentumY,
+        dwellMs: data.dwellMs,
+        smoothing: data.smoothing,
+        hitRadius: data.hitRadius,
+      });
       if (data.action === "save") {
         this.saveGazeCalibration();
       }
@@ -996,6 +1031,7 @@ export class VsCodeMessenger {
         `[Voice][TIMING] DG_FINAL received at ${new Date().toISOString()}, transcript:`,
         JSON.stringify(transcript),
       );
+      logEvent("voice", "transcript_final", { transcript });
     } else if (trimmed.startsWith(">>>")) {
       transcript = trimmed.replace(/^>>>\s*/, "").trim();
       console.log(
@@ -1150,13 +1186,34 @@ export class VsCodeMessenger {
     // Match against `original` (preserves case) with /i so names like
     // "Calculator" survive as "Calculator" rather than "calculator".
     const funcPatterns = [
-      /(?:select|highlight)\s+(?:the\s+)?(\w+)\s+(?:function|method|class)/i,
-      /(?:select|highlight)\s+(?:function|method|class)\s+(\w+)/i,
+      /(?:select|highlight)\s+(?:the\s+)?([\w\s]+?)\s+(?:function|method|class|variable|dictionary|dict|list|array)/i,
+      /(?:select|highlight)\s+(?:function|method|class|variable|dictionary|dict|list|array)\s+([\w\s]+)/i,
     ];
     for (const pattern of funcPatterns) {
       const match = original.match(pattern);
       if (match?.[1]) {
-        return { action: "select_function", functionName: match[1] };
+        return {
+          action: "select_function",
+          functionName: match[1].trim(),
+        };
+      }
+    }
+
+    // ── Generic "select X" / "select all of X" — covers any identifier ──
+    // Must come AFTER line/file/function patterns so it doesn't swallow them.
+    const genericSelect = original.match(
+      /(?:select|highlight)\s+(?:all\s+(?:of\s+)?)?(?:the\s+)?([\w\s]+?)$/i,
+    );
+    if (genericSelect?.[1]) {
+      const name = genericSelect[1].trim();
+      // Reject things that look like other intents
+      if (
+        name &&
+        !/^(lines?|line|file|the\s+file|whole\s+file|entire\s+file|everything|all)$/i.test(
+          name,
+        )
+      ) {
+        return { action: "select_function", functionName: name };
       }
     }
 
@@ -1193,6 +1250,24 @@ export class VsCodeMessenger {
       return { action: "inline_comment" };
     }
 
+    // ── "run [the] file" / "run [it]" / "show [me] [the] result/output" ──
+    if (
+      /\b(?:run\s+(?:the\s+)?(?:file|code|script|it|this)|run|execute(?:\s+(?:the\s+)?(?:file|code|script|it|this))?|show\s+(?:me\s+)?(?:the\s+)?(?:result|results|output|outputs))\b/.test(
+        text,
+      )
+    ) {
+      return { action: "run_file" };
+    }
+
+    // ── "go back to [the] code" / "take me back to [the] code" / "open [the] code [file]" ──
+    if (
+      /\b(?:(?:go|take\s+me|come|bring\s+me)\s+back\s+(?:to\s+)?(?:the\s+)?code|back\s+to\s+(?:the\s+)?code|(?:go|take\s+me|switch|jump)\s+to\s+(?:the\s+)?code|open\s+(?:the\s+)?code(?:\s+file)?|show\s+(?:me\s+)?(?:the\s+)?code(?:\s+file)?|focus\s+(?:the\s+)?code)\b/.test(
+        text,
+      )
+    ) {
+      return { action: "focus_code" };
+    }
+
     // ── "custom prompt/question: ..." ──
     const customMatch = text.match(
       /\b(?:custom\s+(?:prompt|question)|ask\s+(?:a\s+)?custom\s+(?:question|prompt))\s*[,:.]?\s*(.*)/,
@@ -1221,6 +1296,38 @@ export class VsCodeMessenger {
         `[Voice][TIMING] LOCAL MATCH in ${elapsed}ms:`,
         JSON.stringify(localIntent),
       );
+      logEvent("voice", "intent_classified", {
+        transcript,
+        action: localIntent.action,
+        path: "local",
+        classification_ms: elapsed,
+        params: localIntent,
+      });
+      // Special case: run_file is handled directly by the extension, no webview round-trip
+      if (localIntent.action === "run_file") {
+        console.log(
+          "[Voice] run_file intent → invoking continue.runPythonFile",
+        );
+        logEvent("voice", "intent_executed", {
+          action: "run_file",
+          dispatch: "extension",
+        });
+        void vscode.commands.executeCommand("continue.runPythonFile");
+        return;
+      }
+      // Special case: focus_code switches the active editor back to a code.py file
+      if (localIntent.action === "focus_code") {
+        console.log("[Voice] focus_code intent → finding and opening code.py");
+        logEvent("voice", "intent_executed", {
+          action: "focus_code",
+          dispatch: "extension",
+        });
+        void this.focusCodeFile();
+        return;
+      }
+      logEvent("voice", "intent_dispatched_to_webview", {
+        action: localIntent.action,
+      });
       this.webviewProtocol.send("voiceIntent", {
         ...localIntent,
         transcript,
@@ -1312,6 +1419,12 @@ Return ONLY valid JSON.`;
       if (!response.ok) {
         const errText = await response.text();
         console.log("[Voice] LLM API error:", response.status, errText);
+        logEvent("voice", "llm_classification_error", {
+          transcript,
+          status: response.status,
+          error: errText.slice(0, 500),
+          elapsed_ms: Date.now() - tLlmStart,
+        });
         this.webviewProtocol.send("voiceIntent", {
           action: "unknown",
           transcript,
@@ -1331,6 +1444,13 @@ Return ONLY valid JSON.`;
 
       if (!content) {
         console.log("[Voice] LLM returned empty content");
+        logEvent("voice", "intent_classified", {
+          transcript,
+          action: "unknown",
+          path: "llm",
+          reason: "empty_content",
+          classification_ms: Date.now() - t0,
+        });
         this.webviewProtocol.send("voiceIntent", {
           action: "unknown",
           transcript,
@@ -1344,6 +1464,13 @@ Return ONLY valid JSON.`;
       );
       if (!jsonMatch) {
         console.log("[Voice] Could not find JSON object in LLM response");
+        logEvent("voice", "intent_classified", {
+          transcript,
+          action: "unknown",
+          path: "llm",
+          reason: "no_json",
+          classification_ms: Date.now() - t0,
+        });
         this.webviewProtocol.send("voiceIntent", {
           action: "unknown",
           transcript,
@@ -1356,6 +1483,16 @@ Return ONLY valid JSON.`;
         `[Voice][TIMING] LLM DONE in ${Date.now() - tLlmStart}ms | total pipeline: ${tTotal}ms | intent:`,
         JSON.stringify(intent),
       );
+
+      logEvent("voice", "intent_classified", {
+        transcript,
+        action: intent.action || "unknown",
+        path: "llm",
+        classification_ms: tTotal,
+        llm_call_ms: Date.now() - tLlmStart,
+        model,
+        params: intent,
+      });
 
       this.webviewProtocol.send("voiceIntent", {
         action: intent.action || "unknown",
@@ -1370,11 +1507,90 @@ Return ONLY valid JSON.`;
         `[Voice][TIMING] classifyAndSendVoiceIntent ERROR after ${Date.now() - t0}ms:`,
         err.message,
       );
+      logEvent("voice", "voice_error", {
+        transcript,
+        phase: "classification",
+        message: err?.message ?? String(err),
+        elapsed_ms: Date.now() - t0,
+      });
       this.webviewProtocol.send("voiceIntent", {
         action: "unknown",
         transcript,
       });
     }
+  }
+
+  // ─── Find code.py in the workspace and make it the active editor ──
+  private async focusCodeFile() {
+    // 1) If a code.py is already open in any tab, switch to it
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input as any;
+        const uri: vscode.Uri | undefined = input?.uri;
+        if (uri && /\bcode\.py$/i.test(uri.fsPath)) {
+          console.log("[Voice] focus_code: switching to open tab", uri.fsPath);
+          await vscode.window.showTextDocument(uri, {
+            viewColumn: tab.group.viewColumn,
+            preserveFocus: false,
+          });
+          return;
+        }
+      }
+    }
+
+    // 2) Otherwise, find code.py in the workspace and open it
+    const found = await vscode.workspace.findFiles("**/code.py", null, 5);
+    if (found.length === 0) {
+      console.log("[Voice] focus_code: no code.py found in workspace");
+      void vscode.window.showWarningMessage(
+        "No code.py file found in this workspace.",
+      );
+      return;
+    }
+    console.log("[Voice] focus_code: opening", found[0].fsPath);
+    await vscode.window.showTextDocument(found[0], { preserveFocus: false });
+  }
+
+  // Re-focus the active text editor (or fall back to the most recent open
+  // editable tab) so voice commands operate on the user's code, not the
+  // sidebar/webview that has focus when they click the mic button.
+  private async focusActiveEditor() {
+    const active = vscode.window.activeTextEditor;
+    if (active) {
+      console.log(
+        "[Voice] focusActiveEditor: re-showing active editor",
+        active.document.uri.fsPath,
+      );
+      await vscode.window.showTextDocument(active.document, {
+        viewColumn: active.viewColumn,
+        preserveFocus: false,
+      });
+      return;
+    }
+
+    // No active text editor — find the most recent editable tab in any group.
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input as any;
+        const uri: vscode.Uri | undefined = input?.uri;
+        if (
+          uri &&
+          /\.(py|js|ts|tsx|jsx|java|cs|go|rs|cpp|c|md)$/i.test(uri.fsPath)
+        ) {
+          console.log(
+            "[Voice] focusActiveEditor: opening tab from group",
+            uri.fsPath,
+          );
+          await vscode.window.showTextDocument(uri, {
+            viewColumn: tab.group.viewColumn,
+            preserveFocus: false,
+          });
+          return;
+        }
+      }
+    }
+
+    console.log("[Voice] focusActiveEditor: no editor to focus");
   }
 
   private async execFileStdout(
@@ -1615,6 +1831,10 @@ Return ONLY valid JSON.`;
       );
       return;
     }
+
+    // Auto-focus the active editor so subsequent voice commands operate on
+    // the user's code file (not the sidebar/webview).
+    await this.focusActiveEditor();
 
     const windowsScriptDir = await this.stageVoiceScriptInWindowsDir();
     if (!windowsScriptDir) {
@@ -2160,6 +2380,13 @@ Return ONLY valid JSON.`;
             console.log(
               `[Gaze:frame] raw=(${data.x.toFixed(3)},${data.y.toFixed(3)}) cal=(${calX.toFixed(3)},${calY.toFixed(3)}) smooth=(${adjX.toFixed(3)},${adjY.toFixed(3)}) dotLine=${this.lastGazeDotLine}`,
             );
+            // Sample gaze position to log @ ~1 Hz (30 frames @ 30 fps)
+            logEvent("gaze", "dot_position", {
+              x: parseFloat(adjX.toFixed(4)),
+              y: parseFloat(adjY.toFixed(4)),
+              dot_line: this.lastGazeDotLine,
+              valid: true,
+            });
           }
           this.updateGazeDot(adjY);
           this.webviewProtocol.send("gazeUpdate", {
@@ -2183,6 +2410,10 @@ Return ONLY valid JSON.`;
               console.log(
                 `[Gaze] Dwell triggered (${this.gazeDwellMs}ms) at dotLine=${currentDotLine}`,
               );
+              logEvent("gaze", "dwell_triggered", {
+                line: currentDotLine,
+                dwell_ms: this.gazeDwellMs,
+              });
               this.handleGazeLingerAtLine(currentDotLine);
               this.gazeLingerStart = null;
               this.gazeLingerPos = null;
@@ -2342,6 +2573,27 @@ Return ONLY valid JSON.`;
       range,
       vscode.TextEditorRevealType.InCenterIfOutsideViewport,
     );
+
+    // Log selection event with content hash (no raw source)
+    try {
+      const selectedText = editor.document.getText(range);
+      logEvent("gaze", "block_selected", {
+        kind: target.kind,
+        name: target.name,
+        start_line: target.startLine + 1,
+        end_line: target.endLine + 1,
+        line_count: target.endLine - target.startLine + 1,
+        file: path.basename(editor.document.uri.fsPath),
+      });
+      logEvent("selection", "selection_changed", {
+        method: "gaze",
+        file: path.basename(editor.document.uri.fsPath),
+        start_line: target.startLine + 1,
+        end_line: target.endLine + 1,
+        length: selectedText.length,
+        content_sha256: SessionLogger.get()?.hash(selectedText) ?? "",
+      });
+    } catch {}
   }
 
   // Parse top-level + nested classes and functions/methods from a brace-based

@@ -217,9 +217,33 @@ export function Chat() {
       !hasTriggeredOverviewRef.current
     ) {
       hasTriggeredOverviewRef.current = true;
+      void ideMessenger.post("researchLogEvent", {
+        category: "ai",
+        event: "overview_requested",
+        data: {
+          file: frozenSelection.filepath,
+          start_line: frozenSelection.range?.start?.line ?? 0,
+          end_line: frozenSelection.range?.end?.line ?? 0,
+          length: frozenSelection.content?.length ?? 0,
+        },
+      });
       void dispatch(generateAIOverviewThunk(frozenSelection));
     }
-  }, [dispatch, launchStarted, frozenSelection, history.length]);
+  }, [dispatch, launchStarted, frozenSelection, history.length, ideMessenger]);
+
+  // Log when an AI overview response arrives (assistant message after overview request)
+  useEffect(() => {
+    if (overviewContent) {
+      void ideMessenger.post("researchLogEvent", {
+        category: "ai",
+        event: "overview_received",
+        data: {
+          length: overviewContent.length,
+          file: frozenSelection?.filepath,
+        },
+      });
+    }
+  }, [overviewContent, ideMessenger, frozenSelection]);
 
   useEffect(() => {
     // Cmd + Backspace to delete current step
@@ -260,6 +284,53 @@ export function Chat() {
       const selectedModelByRole =
         stateSnapshot.config.config.selectedModelByRole;
       const currentMode = stateSnapshot.session.mode;
+
+      // Research telemetry: log prompt with type label and active file
+      void (async () => {
+        try {
+          const hasMentions = (node: any): boolean => {
+            if (!node || typeof node !== "object") return false;
+            if (node.type === "mention" || node.type === "codeBlock")
+              return true;
+            if (Array.isArray(node.content)) {
+              for (const c of node.content) if (hasMentions(c)) return true;
+            }
+            return false;
+          };
+          const extractText = (node: any): string => {
+            if (!node || typeof node !== "object") return "";
+            let out = "";
+            if (typeof node.text === "string") out += node.text;
+            if (Array.isArray(node.content)) {
+              for (const c of node.content) out += extractText(c);
+            }
+            return out;
+          };
+          const historyLen = stateSnapshot.session.history.length;
+          const hasCtx = hasMentions(editorState);
+          // Mutually exclusive priority: Followup > Context > Prompt
+          let promptType: "prompt" | "prompt_context" | "prompt_followup";
+          if (historyLen > 0) promptType = "prompt_followup";
+          else if (hasCtx) promptType = "prompt_context";
+          else promptType = "prompt";
+
+          const text = extractText(editorState);
+          const currentFile = await ideMessenger.ide.getCurrentFile();
+          void ideMessenger.post("researchLogEvent", {
+            category: "ai",
+            event: "prompt_sent",
+            data: {
+              prompt_type: promptType,
+              has_context: hasCtx,
+              is_followup: historyLen > 0,
+              prompt_length: text.length,
+              file: currentFile?.path,
+              mode: currentMode,
+              in_edit: isCurrentlyInEdit,
+            },
+          });
+        } catch {}
+      })();
 
       // Handle background mode specially
       if (currentMode === "background" && !isCurrentlyInEdit) {
@@ -451,6 +522,15 @@ export function Chat() {
 
       const line = frozenSelection.range?.start?.line ?? 1;
       const comment = formatComment(trimmed, filepath);
+      void ideMessenger.post("researchLogEvent", {
+        category: "ai",
+        event: "inline_comment_inserted",
+        data: {
+          target_line: line,
+          comment_length: trimmed.length,
+          file: filepath,
+        },
+      });
       ideMessenger.post("insertCommentAbove", {
         filepath,
         line,
@@ -463,6 +543,16 @@ export function Chat() {
   const triggerExplain = useCallback(
     (kind: "api" | "concept" | "usage") => {
       if (!frozenSelection?.content) return;
+
+      void ideMessenger.post("researchLogEvent", {
+        category: "ai",
+        event: "explain_clicked",
+        data: {
+          type: kind,
+          selection_length: frozenSelection.content.length,
+          file: frozenSelection.filepath,
+        },
+      });
 
       const prompts: Record<typeof kind, string> = {
         api: `Briefly describe the public interface of this code — what methods or functions are available, what they accept, and what they return. Keep it short and spoken-style, 3 to 5 sentences. No code snippets, no markdown.\n\n${frozenSelection.content}`,
@@ -521,6 +611,15 @@ export function Chat() {
       };
       console.log("[Voice:Chat] received voiceIntent:", JSON.stringify(intent));
 
+      void ideMessenger.post("researchLogEvent", {
+        category: "voice",
+        event: "intent_received_in_webview",
+        data: {
+          action: intent.action,
+          transcript: intent.transcript,
+        },
+      });
+
       const currentFile = await ideMessenger.ide.getCurrentFile();
 
       switch (intent.action) {
@@ -534,7 +633,12 @@ export function Chat() {
           }
           const lineCount = currentFile.contents?.split(/\r?\n/).length ?? 1;
           const s = Math.max(1, Math.min(intent.startLine, lineCount));
-          const e = Math.max(s, Math.min(intent.endLine, lineCount));
+          let e = Math.max(s, Math.min(intent.endLine, lineCount));
+          // Single-line selections don't visibly highlight via showLines —
+          // extend by one line so the selection is actually visible.
+          if (e === s && e < lineCount) {
+            e = s + 1;
+          }
           console.log("[Voice:Chat] selecting lines", s, "-", e);
           await ideMessenger.ide.showLines(currentFile.path, s - 1, e - 1);
           void ideMessenger.ide.showToast("info", `Selected lines ${s}-${e}`);
@@ -563,63 +667,131 @@ export function Chat() {
           if (!currentFile?.path || !intent.functionName) {
             void ideMessenger.ide.showToast(
               "warning",
-              "No file open or no function name.",
+              "No file open or no name.",
             );
             break;
           }
-          console.log(
-            "[Voice:Chat] looking for function/class:",
-            intent.functionName,
-          );
+          console.log("[Voice:Chat] looking for symbol:", intent.functionName);
           const lines = (currentFile.contents ?? "").split(/\r?\n/);
-          const escaped = intent.functionName.replace(
-            /[.*+?^${}()|[\]\\]/g,
-            "\\$&",
-          );
-          // Prioritized patterns: strong declarations first, fall back to any
-          // occurrence. Case-insensitive so "Calculator" matches regardless
-          // of how the voice transcript capitalized it.
-          const declPatterns: RegExp[] = [
-            new RegExp(
-              `\\b(?:class|interface|struct|enum|trait|record)\\s+${escaped}\\b`,
-              "i",
-            ),
-            new RegExp(`\\b(?:function|func|fn|def|sub)\\s+${escaped}\\b`, "i"),
-            new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\s*[:=]`, "i"),
-            new RegExp(`\\b${escaped}\\s*\\(`, "i"),
-            new RegExp(`\\b${escaped}\\b`, "i"),
-          ];
+
+          // ── Generate candidate name variants ──
+          // Voice transcripts strip underscores: "scores data" → ["scores_data",
+          // "scoresData", "ScoresData", "scoresdata", "scores data"]
+          const raw = intent.functionName.trim();
+          const words = raw.split(/[\s_-]+/).filter(Boolean);
+          const variants = new Set<string>();
+          variants.add(raw);
+          if (words.length > 1) {
+            variants.add(words.join("_"));
+            variants.add(words.join(""));
+            variants.add(
+              words[0].toLowerCase() +
+                words
+                  .slice(1)
+                  .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+                  .join(""),
+            );
+            variants.add(
+              words
+                .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+                .join(""),
+            );
+          }
+
+          const escapeRe = (s: string) =>
+            s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+          // ── Try each variant against prioritized declaration patterns ──
+          // Priority: class/struct > def/function > Python assignment >
+          // const/let/var > function call > any occurrence.
           let funcStart = -1;
-          for (const pat of declPatterns) {
+          let matchedVariant = raw;
+          outer: for (const variant of variants) {
+            const escaped = escapeRe(variant);
+            const declPatterns: RegExp[] = [
+              new RegExp(
+                `\\b(?:class|interface|struct|enum|trait|record)\\s+${escaped}\\b`,
+                "i",
+              ),
+              new RegExp(
+                `\\b(?:function|func|fn|def|sub)\\s+${escaped}\\b`,
+                "i",
+              ),
+              // Python-style top-level or indented assignment: `name = ...`
+              new RegExp(`^\\s*${escaped}\\s*=`, "i"),
+              new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\s*[:=]`, "i"),
+              new RegExp(`\\b${escaped}\\s*\\(`, "i"),
+              new RegExp(`\\b${escaped}\\b`, "i"),
+            ];
+            for (const pat of declPatterns) {
+              for (let i = 0; i < lines.length; i++) {
+                if (pat.test(lines[i])) {
+                  funcStart = i;
+                  matchedVariant = variant;
+                  break outer;
+                }
+              }
+            }
+          }
+
+          // ── Fuzzy fallback: each word in the query becomes a prefix match.
+          // Handles voice transcription dropping trailing 's' or other small
+          // word-ending differences. e.g. "for subject in subject" matches
+          // "for subject in subjects". Also handles ±1 trailing-char drift.
+          if (funcStart === -1 && words.length >= 1) {
+            const fuzzyPattern = new RegExp(
+              "\\b" +
+                words.map((w) => `${escapeRe(w)}\\w{0,3}`).join("\\s+") +
+                "\\b",
+              "i",
+            );
+            console.log(
+              "[Voice:Chat] fuzzy fallback pattern:",
+              fuzzyPattern.source,
+            );
             for (let i = 0; i < lines.length; i++) {
-              if (pat.test(lines[i])) {
+              if (fuzzyPattern.test(lines[i])) {
                 funcStart = i;
+                matchedVariant = raw;
                 break;
               }
             }
-            if (funcStart !== -1) break;
           }
 
           let funcEnd = -1;
           if (funcStart !== -1) {
             const startLine = lines[funcStart];
-            // Decide brace-based vs indent-based by looking for an opening
-            // brace on the declaration line or the immediately following line.
-            const openOnThis = startLine.includes("{");
-            const openOnNext =
+            // Detect any opening bracket: {, [, or (
+            const bracketMatch = startLine.match(/[{[(]/);
+            const nextLineBracket =
               funcStart + 1 < lines.length &&
-              /^\s*\{/.test(lines[funcStart + 1]);
-            const hasBraces = openOnThis || openOnNext;
+              /^\s*[{[(]/.test(lines[funcStart + 1]);
+            const hasBrackets = !!bracketMatch || nextLineBracket;
 
-            if (hasBraces) {
+            if (hasBrackets) {
+              // Bracket-balanced block: track {}, [], () depth across lines.
+              const open = "{[(";
+              const close = "}])";
               let depth = 0;
               let started = false;
+              let inString: string | null = null;
               for (let i = funcStart; i < lines.length; i++) {
-                for (const ch of lines[i]) {
-                  if (ch === "{") {
+                for (let c = 0; c < lines[i].length; c++) {
+                  const ch = lines[i][c];
+                  if (inString) {
+                    if (ch === inString && lines[i][c - 1] !== "\\") {
+                      inString = null;
+                    }
+                    continue;
+                  }
+                  if (ch === '"' || ch === "'") {
+                    inString = ch;
+                    continue;
+                  }
+                  if (open.includes(ch)) {
                     depth++;
                     started = true;
-                  } else if (ch === "}") {
+                  } else if (close.includes(ch)) {
                     depth--;
                   }
                 }
@@ -629,10 +801,10 @@ export function Chat() {
                 }
               }
             } else {
-              // Indent-based block (Python, YAML-ish, etc.): scan until we
-              // hit a line with indent ≤ declaration indent.
+              // Indent-based (Python def/class without brackets, or single-line
+              // assignment).
               const baseIndent = (startLine.match(/^\s*/)?.[0] ?? "").length;
-              funcEnd = lines.length - 1;
+              funcEnd = funcStart;
               for (let i = funcStart + 1; i < lines.length; i++) {
                 if (lines[i].trim() === "") continue;
                 const indent = (lines[i].match(/^\s*/)?.[0] ?? "").length;
@@ -640,6 +812,7 @@ export function Chat() {
                   funcEnd = i - 1;
                   break;
                 }
+                funcEnd = i;
               }
               while (funcEnd > funcStart && lines[funcEnd].trim() === "") {
                 funcEnd--;
@@ -649,8 +822,15 @@ export function Chat() {
           if (funcStart !== -1) {
             if (funcEnd === -1 || funcEnd < funcStart)
               funcEnd = Math.min(funcStart + 20, lines.length - 1);
+            // Single-line matches don't visibly highlight via showLines —
+            // extend by one line so the selection is actually visible.
+            if (funcEnd === funcStart && funcStart + 1 < lines.length) {
+              funcEnd = funcStart + 1;
+            }
             console.log(
-              "[Voice:Chat] found function at lines",
+              "[Voice:Chat] found",
+              matchedVariant,
+              "at lines",
               funcStart + 1,
               "-",
               funcEnd + 1,
@@ -662,12 +842,12 @@ export function Chat() {
             );
             void ideMessenger.ide.showToast(
               "info",
-              `Selected ${intent.functionName} (lines ${funcStart + 1}-${funcEnd + 1})`,
+              `Selected ${matchedVariant} (lines ${funcStart + 1}-${funcEnd + 1})`,
             );
           } else {
             void ideMessenger.ide.showToast(
               "warning",
-              `Function "${intent.functionName}" not found.`,
+              `"${intent.functionName}" not found.`,
             );
           }
           break;
@@ -917,6 +1097,11 @@ export function Chat() {
         if (gazeHoverRef.current?.action === hoveredAction) {
           if (now - gazeHoverRef.current.since >= gazeDwellMsRef.current) {
             console.log("[Gaze:GUI] Button triggered:", hoveredAction);
+            void ideMessenger.post("researchLogEvent", {
+              category: "gaze",
+              event: "button_dwell_triggered",
+              data: { action: hoveredAction },
+            });
             gazeHoverRef.current = null;
             switch (hoveredAction) {
               case "overview":

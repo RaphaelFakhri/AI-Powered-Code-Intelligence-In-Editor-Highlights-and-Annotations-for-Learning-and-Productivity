@@ -144,6 +144,11 @@ function InputToolbar(props: InputToolbarProps) {
       "[Voice:GUI] handleVoiceSelectionClick: isVoiceListening =",
       isVoiceListening,
     );
+    void ideMessenger.post("researchLogEvent", {
+      category: "ui",
+      event: "voice_button_click",
+      data: { was_listening: isVoiceListening },
+    });
     // Unlock AudioContext on user gesture so TTS can play later
     ensureVoiceAudioContext();
     if (isVoiceListening) {
@@ -157,6 +162,11 @@ function InputToolbar(props: InputToolbarProps) {
   const handleGazeModeToggle = () => {
     const newState = !isGazeMode;
     setIsGazeMode(newState);
+    void ideMessenger.post("researchLogEvent", {
+      category: "ui",
+      event: "gaze_button_click",
+      data: { new_state: newState },
+    });
     if (newState) {
       console.log("[Gaze:GUI] Starting gaze tracking");
       void ideMessenger.post("gazeStart", undefined);

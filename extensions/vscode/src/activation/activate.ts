@@ -6,6 +6,7 @@ import { VsCodeExtension } from "../extension/VsCodeExtension";
 import { getExtensionVersion, isUnsupportedPlatform } from "../util/util";
 
 import { GlobalContext } from "core/util/GlobalContext";
+import { promptForResearchParticipant } from "../research/participantPrompt";
 import { VsCodeContinueApi } from "./api";
 import setupInlineTips from "./InlineTipManager";
 
@@ -42,7 +43,21 @@ export async function activateExtension(context: vscode.ExtensionContext) {
   // Register commands and providers
   setupInlineTips(context);
 
+  // ─── Research participant ID prompt (thesis study telemetry) ──────
+  // Triggered manually via the title-bar button or command palette.
+  void promptForResearchParticipant(context);
+
   const vscodeExtension = new VsCodeExtension(context);
+
+  // Command for the title-bar button + command palette + voice trigger.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "continue.researchSetParticipant",
+      async () => {
+        await promptForResearchParticipant(context);
+      },
+    ),
+  );
 
   // Load Continue configuration
   if (!context.globalState.get("hasBeenInstalled")) {

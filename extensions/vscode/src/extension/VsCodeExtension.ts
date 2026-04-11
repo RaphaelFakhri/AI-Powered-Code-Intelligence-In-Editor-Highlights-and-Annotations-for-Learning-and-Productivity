@@ -16,6 +16,7 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import * as vscode from "vscode";
 
+import { logEvent, SessionLogger } from "../research/SessionLogger";
 import { ContinueCompletionProvider } from "../autocomplete/completionProvider";
 import {
   monitorBatteryChanges,
@@ -483,6 +484,10 @@ export class VsCodeExtension {
     // Initialize document content cache for tracking pre-edit content
     vscode.workspace.onDidOpenTextDocument((document) => {
       initDocumentContentCache(document);
+      logEvent("editor", "file_opened", {
+        file: path.basename(document.uri.fsPath),
+        language: document.languageId,
+      });
     });
 
     // Initialize cache for all currently open documents
@@ -507,6 +512,11 @@ export class VsCodeExtension {
     });
 
     vscode.workspace.onDidSaveTextDocument(async (event) => {
+      logEvent("editor", "file_saved", {
+        file: path.basename(event.uri.fsPath),
+        language: event.languageId,
+        line_count: event.lineCount,
+      });
       this.core.invoke("files/changed", {
         uris: [event.uri.toString()],
       });
@@ -520,6 +530,9 @@ export class VsCodeExtension {
 
     vscode.workspace.onDidCloseTextDocument(async (event) => {
       clearDocumentContentCache(event.uri.toString());
+      logEvent("editor", "file_closed", {
+        file: path.basename(event.uri.fsPath),
+      });
       this.core.invoke("files/closed", {
         uris: [event.uri.toString()],
       });
@@ -619,6 +632,21 @@ export class VsCodeExtension {
         end: { line: selection.end.line, character: selection.end.character },
       };
       const selectedText = e.textEditor.document.getText(selection);
+      // Manual selection telemetry — only log non-empty selections so we don't
+      // spam events on every cursor move. Voice/gaze selections are logged in
+      // their own handlers via SessionLogger directly.
+      if (selectedText.length > 0) {
+        try {
+          logEvent("selection", "selection_changed", {
+            method: "manual",
+            file: path.basename(e.textEditor.document.uri.fsPath),
+            start_line: selection.start.line + 1,
+            end_line: selection.end.line + 1,
+            length: selectedText.length,
+            content_sha256: SessionLogger.get()?.hash(selectedText) ?? "",
+          });
+        } catch {}
+      }
       this.sidebar.webviewProtocol.send("selectionChange", {
         filepath: currentFilePath,
         range,
@@ -677,6 +705,9 @@ export class VsCodeExtension {
     context.subscriptions.push(linkProvider);
 
     this.ide.onDidChangeActiveTextEditor((filepath) => {
+      logEvent("editor", "active_editor_changed", {
+        file: path.basename(filepath),
+      });
       void this.core.invoke("files/opened", { uris: [filepath] });
     });
 

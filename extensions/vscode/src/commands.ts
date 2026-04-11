@@ -2,6 +2,8 @@
 import * as child_process from "node:child_process";
 import * as fs from "node:fs";
 
+import { logEvent } from "./research/SessionLogger";
+
 import { ContextMenuConfig, ILLM, ModelInstaller } from "core";
 import { CompletionProvider } from "core/autocomplete/CompletionProvider";
 import { ConfigHandler } from "core/config/ConfigHandler";
@@ -187,16 +189,38 @@ const getCommandsMap: (
     "continue.runPythonFile": async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor || !editor.document.fileName.endsWith(".py")) {
+        logEvent("run", "run_skipped", {
+          reason: !editor ? "no_editor" : "not_python",
+        });
         return;
       }
       const filePath = editor.document.fileName;
       await editor.document.save();
+      const startedAt = Date.now();
+      logEvent("run", "run_started", {
+        file: require("path").basename(filePath),
+      });
       child_process.exec(
         `python3 "${filePath}"`,
         { cwd: require("path").dirname(filePath) },
-        (err) => {
+        (err, stdout, stderr) => {
+          const duration_ms = Date.now() - startedAt;
           if (err) {
             vscode.window.showErrorMessage(`Python error: ${err.message}`);
+            logEvent("run", "run_completed", {
+              file: require("path").basename(filePath),
+              exit_code: (err as any).code ?? 1,
+              duration_ms,
+              error: err.message.slice(0, 500),
+            });
+          } else {
+            logEvent("run", "run_completed", {
+              file: require("path").basename(filePath),
+              exit_code: 0,
+              duration_ms,
+              stdout_length: stdout?.length ?? 0,
+              stderr_length: stderr?.length ?? 0,
+            });
           }
         },
       );

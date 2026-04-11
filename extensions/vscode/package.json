@@ -157,6 +157,12 @@
         "title": "▶▶  𝗥𝗨𝗡 𝗙𝗜𝗟𝗘 & 𝗦𝗘𝗘 𝗢𝗨𝗧𝗣𝗨𝗧  ◀◀"
       },
       {
+        "command": "continue.researchSetParticipant",
+        "category": "Continue",
+        "title": "👤 Set Research Participant ID",
+        "icon": "$(account)"
+      },
+      {
         "command": "continue.applyCodeFromChat",
         "category": "Continue",
         "title": "Apply code from chat",
@@ -642,18 +648,6 @@
           "command": "continue.rejectDiff",
           "group": "Continue",
           "when": "continue.streamingDiff"
-        },
-        {
-          "command": "python.execInTerminal-icon",
-          "when": "false"
-        },
-        {
-          "command": "python.execInDedicatedTerminal",
-          "when": "false"
-        },
-        {
-          "command": "python.debugInTerminal",
-          "when": "false"
         }
       ],
       "continue.continueSubMenu": [
@@ -696,6 +690,10 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "continue.researchSetParticipant",
+          "group": "navigation@-1"
+        },
         {
           "command": "continue.newSession",
           "group": "navigation@1",

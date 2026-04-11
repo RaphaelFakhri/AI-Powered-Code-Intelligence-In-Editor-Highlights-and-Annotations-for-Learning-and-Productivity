@@ -92,6 +92,14 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   voiceSelectionStop: [undefined, void];
   voiceTtsSpeak: [{ text: string }, void];
   voiceTtsStop: [undefined, void];
+  researchLogEvent: [
+    {
+      category: string;
+      event: string;
+      data?: Record<string, unknown>;
+    },
+    void,
+  ];
   gazeStart: [undefined, void];
   gazeStop: [undefined, void];
   gazeCalibrate: [
