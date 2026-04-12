@@ -220,6 +220,17 @@ export class VsCodeMessenger {
 
     this.onWebview("gazeCalibrate", async ({ data }) => {
       console.log(`[Gaze] Calibrate ${data.action}:`, data);
+      // Skip logging if the incoming values are identical to what we already
+      // have — prevents duplicate entries from the calibration sync round-trip.
+      const changed =
+        data.action === "save" ||
+        this.gazeOffsetX !== data.offsetX ||
+        this.gazeOffsetY !== data.offsetY ||
+        this.gazeMomentumX !== data.momentumX ||
+        this.gazeMomentumY !== data.momentumY ||
+        this.gazeDwellMs !== data.dwellMs ||
+        this.gazeSmoothing !== data.smoothing ||
+        this.gazeHitRadius !== data.hitRadius;
       this.gazeOffsetX = data.offsetX;
       this.gazeOffsetY = data.offsetY;
       this.gazeMomentumX = data.momentumX;
@@ -227,16 +238,18 @@ export class VsCodeMessenger {
       this.gazeDwellMs = data.dwellMs;
       this.gazeSmoothing = data.smoothing;
       this.gazeHitRadius = data.hitRadius;
-      logEvent("gaze", "calibration_change", {
-        action: data.action,
-        offsetX: data.offsetX,
-        offsetY: data.offsetY,
-        momentumX: data.momentumX,
-        momentumY: data.momentumY,
-        dwellMs: data.dwellMs,
-        smoothing: data.smoothing,
-        hitRadius: data.hitRadius,
-      });
+      if (changed) {
+        logEvent("gaze", "calibration_change", {
+          action: data.action,
+          offsetX: data.offsetX,
+          offsetY: data.offsetY,
+          momentumX: data.momentumX,
+          momentumY: data.momentumY,
+          dwellMs: data.dwellMs,
+          smoothing: data.smoothing,
+          hitRadius: data.hitRadius,
+        });
+      }
       if (data.action === "save") {
         this.saveGazeCalibration();
       }
@@ -1296,38 +1309,32 @@ export class VsCodeMessenger {
         `[Voice][TIMING] LOCAL MATCH in ${elapsed}ms:`,
         JSON.stringify(localIntent),
       );
+      // Strip the duplicate `action` field from params before logging
+      const { action: _action, ...paramsWithoutAction } = localIntent as Record<
+        string,
+        unknown
+      > & { action: string };
       logEvent("voice", "intent_classified", {
         transcript,
         action: localIntent.action,
         path: "local",
         classification_ms: elapsed,
-        params: localIntent,
+        params: paramsWithoutAction,
       });
       // Special case: run_file is handled directly by the extension, no webview round-trip
       if (localIntent.action === "run_file") {
         console.log(
           "[Voice] run_file intent → invoking continue.runPythonFile",
         );
-        logEvent("voice", "intent_executed", {
-          action: "run_file",
-          dispatch: "extension",
-        });
         void vscode.commands.executeCommand("continue.runPythonFile");
         return;
       }
       // Special case: focus_code switches the active editor back to a code.py file
       if (localIntent.action === "focus_code") {
         console.log("[Voice] focus_code intent → finding and opening code.py");
-        logEvent("voice", "intent_executed", {
-          action: "focus_code",
-          dispatch: "extension",
-        });
         void this.focusCodeFile();
         return;
       }
-      logEvent("voice", "intent_dispatched_to_webview", {
-        action: localIntent.action,
-      });
       this.webviewProtocol.send("voiceIntent", {
         ...localIntent,
         transcript,
@@ -1484,6 +1491,9 @@ Return ONLY valid JSON.`;
         JSON.stringify(intent),
       );
 
+      // Strip the duplicate `action` field from params before logging
+      const { action: _llmAction, ...llmParamsWithoutAction } =
+        intent as Record<string, unknown> & { action: string };
       logEvent("voice", "intent_classified", {
         transcript,
         action: intent.action || "unknown",
@@ -1491,7 +1501,7 @@ Return ONLY valid JSON.`;
         classification_ms: tTotal,
         llm_call_ms: Date.now() - tLlmStart,
         model,
-        params: intent,
+        params: llmParamsWithoutAction,
       });
 
       this.webviewProtocol.send("voiceIntent", {
@@ -2522,7 +2532,45 @@ Return ONLY valid JSON.`;
       }
     }
 
-    // Nothing contained the line — snap to nearest block (class or function)
+    // Nothing contained the line — try blank-line-delimited paragraph first,
+    // then snap to nearest declared block as a last resort.
+    if (!target) {
+      // Find the contiguous paragraph of non-empty lines around the gaze line.
+      // A "paragraph" is bounded by blank lines (or file start/end).
+      let paraStart = clampedLine;
+      let paraEnd = clampedLine;
+      while (paraStart > 0 && lines[paraStart - 1]?.trim() !== "") {
+        paraStart--;
+      }
+      while (paraEnd < lines.length - 1 && lines[paraEnd + 1]?.trim() !== "") {
+        paraEnd++;
+      }
+      // Only use paragraph if it's at least 2 lines and not the entire file
+      if (
+        paraEnd - paraStart >= 1 &&
+        !(paraStart === 0 && paraEnd === lines.length - 1)
+      ) {
+        // Derive a label from the first non-empty line (e.g. "scores_data = {")
+        const firstLine = lines[paraStart].trim();
+        const label =
+          firstLine.match(/^(\w+)\s*=/)?.[1] || // variable assignment
+          firstLine.match(/^(?:for|if|while|with|def|class)\s+(\S+)/)?.[1] || // keyword block
+          firstLine.slice(0, 30);
+        console.log(
+          `[Gaze] Paragraph fallback: "${label}" lines ${paraStart + 1}-${paraEnd + 1}`,
+        );
+        target = {
+          kind: "function" as const,
+          name: label,
+          startLine: paraStart,
+          endLine: paraEnd,
+          isConstructor: false,
+          parent: null,
+        };
+      }
+    }
+
+    // Still nothing — snap to nearest declared block (class or function)
     if (!target && blocks.length > 0) {
       let minDist = Infinity;
       for (const b of blocks) {

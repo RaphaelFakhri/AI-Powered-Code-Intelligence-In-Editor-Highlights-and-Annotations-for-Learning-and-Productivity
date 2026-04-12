@@ -163,8 +163,12 @@ export function BlockSettingsTopToolbar() {
     });
   };
 
-  // Send live updates when sliders change
+  // Send live updates when sliders change.
+  // Only fire when gaze is actually active — otherwise the initial mount
+  // (and any unrelated re-renders) would send phantom calibration messages
+  // even though the user never touched gaze.
   useEffect(() => {
+    if (!gazeActive) return;
     sendGazeCalibration("update");
     // Broadcast dwellMs and hitRadius to Chat.tsx gaze hover logic
     window.dispatchEvent(
@@ -173,6 +177,7 @@ export function BlockSettingsTopToolbar() {
       }),
     );
   }, [
+    gazeActive,
     gazeOffsetX,
     gazeOffsetY,
     gazeMomentumX,

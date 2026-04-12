@@ -66,6 +66,16 @@ import {
 } from "../util/editLoggingUtils";
 import type { VsCodeWebviewProtocol } from "../webviewProtocol";
 
+// ─── Manual selection debouncing for research telemetry ────────────────
+// Drag-select fires onDidChangeTextEditorSelection on every intermediate
+// state. Without debouncing, a single drag produces dozens of identical
+// log entries. We hold the latest selection in memory, reset a 500ms timer
+// on every event, and emit ONE log entry once the user stops changing the
+// selection.
+const MANUAL_SELECTION_DEBOUNCE_MS = 500;
+let pendingManualSelectionData: Record<string, unknown> | null = null;
+let pendingManualSelectionTimer: NodeJS.Timeout | null = null;
+
 export class VsCodeExtension {
   // Currently some of these are public so they can be used in testing (test/test-suites)
 
@@ -622,6 +632,13 @@ export class VsCodeExtension {
           range: null,
           content: fullContent,
         });
+        // Cancel any pending debounced manual-selection log: the user
+        // explicitly cleared their selection before it could be committed.
+        if (pendingManualSelectionTimer) {
+          clearTimeout(pendingManualSelectionTimer);
+          pendingManualSelectionTimer = null;
+        }
+        pendingManualSelectionData = null;
         return;
       }
       const range = {
@@ -632,19 +649,49 @@ export class VsCodeExtension {
         end: { line: selection.end.line, character: selection.end.character },
       };
       const selectedText = e.textEditor.document.getText(selection);
-      // Manual selection telemetry — only log non-empty selections so we don't
-      // spam events on every cursor move. Voice/gaze selections are logged in
-      // their own handlers via SessionLogger directly.
-      if (selectedText.length > 0) {
+      // Manual selection telemetry — debounce so a single drag-select
+      // produces ONE log entry instead of one per intermediate cursor
+      // position. Each event overwrites the pending data and resets the
+      // timer; the timer fires when the user stops changing the selection.
+      //
+      // Filter out programmatic selections (kind === Command): voice and
+      // gaze handlers call ide.showLines() which programmatically updates
+      // editor.selection — those already log their own selection_changed
+      // event, so logging them again here as "manual" would double-count.
+      const isProgrammatic =
+        e.kind === vscode.TextEditorSelectionChangeKind.Command;
+      if (isProgrammatic) {
+        // Defensive: cancel any pending manual log so a programmatic
+        // selection arriving mid-debounce doesn't get committed as manual.
+        if (pendingManualSelectionTimer) {
+          clearTimeout(pendingManualSelectionTimer);
+          pendingManualSelectionTimer = null;
+        }
+        pendingManualSelectionData = null;
+      } else if (selectedText.length > 0) {
         try {
-          logEvent("selection", "selection_changed", {
+          pendingManualSelectionData = {
             method: "manual",
             file: path.basename(e.textEditor.document.uri.fsPath),
             start_line: selection.start.line + 1,
             end_line: selection.end.line + 1,
             length: selectedText.length,
             content_sha256: SessionLogger.get()?.hash(selectedText) ?? "",
-          });
+          };
+          if (pendingManualSelectionTimer) {
+            clearTimeout(pendingManualSelectionTimer);
+          }
+          pendingManualSelectionTimer = setTimeout(() => {
+            if (pendingManualSelectionData) {
+              logEvent(
+                "selection",
+                "selection_changed",
+                pendingManualSelectionData,
+              );
+              pendingManualSelectionData = null;
+            }
+            pendingManualSelectionTimer = null;
+          }, MANUAL_SELECTION_DEBOUNCE_MS);
         } catch {}
       }
       this.sidebar.webviewProtocol.send("selectionChange", {

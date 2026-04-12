@@ -611,15 +611,6 @@ export function Chat() {
       };
       console.log("[Voice:Chat] received voiceIntent:", JSON.stringify(intent));
 
-      void ideMessenger.post("researchLogEvent", {
-        category: "voice",
-        event: "intent_received_in_webview",
-        data: {
-          action: intent.action,
-          transcript: intent.transcript,
-        },
-      });
-
       const currentFile = await ideMessenger.ide.getCurrentFile();
 
       switch (intent.action) {
@@ -641,6 +632,18 @@ export function Chat() {
           }
           console.log("[Voice:Chat] selecting lines", s, "-", e);
           await ideMessenger.ide.showLines(currentFile.path, s - 1, e - 1);
+          // Research telemetry: log the resulting selection as method=voice
+          void ideMessenger.post("researchLogEvent", {
+            category: "selection",
+            event: "selection_changed",
+            data: {
+              method: "voice",
+              file: currentFile.path.split(/[\\/]/).pop(),
+              start_line: s,
+              end_line: e,
+              transcript: intent.transcript,
+            },
+          });
           void ideMessenger.ide.showToast("info", `Selected lines ${s}-${e}`);
           break;
         }
@@ -656,6 +659,17 @@ export function Chat() {
             totalLines,
           );
           await ideMessenger.ide.showLines(currentFile.path, 0, totalLines - 1);
+          void ideMessenger.post("researchLogEvent", {
+            category: "selection",
+            event: "selection_changed",
+            data: {
+              method: "voice",
+              file: currentFile.path.split(/[\\/]/).pop(),
+              start_line: 1,
+              end_line: totalLines,
+              transcript: intent.transcript,
+            },
+          });
           void ideMessenger.ide.showToast(
             "info",
             `Selected entire file (${totalLines} lines)`,
@@ -840,6 +854,18 @@ export function Chat() {
               funcStart,
               funcEnd,
             );
+            void ideMessenger.post("researchLogEvent", {
+              category: "selection",
+              event: "selection_changed",
+              data: {
+                method: "voice",
+                file: currentFile.path.split(/[\\/]/).pop(),
+                start_line: funcStart + 1,
+                end_line: funcEnd + 1,
+                matched_name: matchedVariant,
+                transcript: intent.transcript,
+              },
+            });
             void ideMessenger.ide.showToast(
               "info",
               `Selected ${matchedVariant} (lines ${funcStart + 1}-${funcEnd + 1})`,
